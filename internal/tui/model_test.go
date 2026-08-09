@@ -1008,3 +1008,66 @@ func TestSnapshotDelete(t *testing.T) {
 		t.Errorf("snapshot not deleted: %v", list)
 	}
 }
+
+func TestFuzzyScore(t *testing.T) {
+	if fuzzyScore("", "anything") < 0 {
+		t.Error("empty query should match")
+	}
+	if fuzzyScore("dbe", "DATABASE_URL") < 0 {
+		t.Error("fuzzy subsequence 'dbe' should match DATABASE_URL")
+	}
+	if fuzzyScore("dburl", "DATABASE_URL") < 0 {
+		t.Error("'dburl' should match DATABASE_URL")
+	}
+	if fuzzyScore("xyz", "DATABASE_URL") >= 0 {
+		t.Error("'xyz' should not match DATABASE_URL")
+	}
+	if fuzzyScore("postg", "postgres://localhost:5432/db") < 0 {
+		t.Error("'postg' should match the value postgres://...")
+	}
+	// consecutive matches score higher than scattered ones
+	if fuzzyScore("DATA", "DATABASE_URL") <= fuzzyScore("DABRL", "DATABASE_URL") {
+		t.Error("consecutive prefix match should rank higher")
+	}
+}
+
+func TestSearchFlow(t *testing.T) {
+	m := testModel(t)
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !m.searching {
+		t.Fatal("/ should open the fuzzy search")
+	}
+	// type a query
+	for _, r := range "dburl" {
+		m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if len(m.searchResults) == 0 {
+		t.Fatal("expected search results")
+	}
+	items := m.displayKeys()
+	topKey := items[m.searchResults[0]].key
+	if topKey != "DATABASE_URL" {
+		t.Errorf("top result = %s, want DATABASE_URL", topKey)
+	}
+	// enter selects it in the keys panel
+	m = update(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.searching {
+		t.Error("enter should close the search")
+	}
+	if m.focus != panelKeys || m.currentKey() != "DATABASE_URL" {
+		t.Errorf("after enter focus=%v key=%s, want keys/DATABASE_URL", m.focus, m.currentKey())
+	}
+	// esc cancels without selecting
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "zzz" {
+		m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if len(m.searchResults) != 0 {
+		t.Error("'zzz' should match nothing")
+	}
+	prevKey := m.currentKey()
+	m = update(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.searching || m.currentKey() != prevKey {
+		t.Error("esc should cancel search without changing selection")
+	}
+}

@@ -48,6 +48,9 @@ func (m Model) View() string {
 	if m.showHelp {
 		return m.helpView()
 	}
+	if m.searching {
+		return m.searchView()
+	}
 	if m.passPrompting {
 		return m.passPromptView()
 	}
@@ -635,7 +638,7 @@ func (m Model) kindStyle(k lint.Kind) string {
 }
 
 func (m Model) footer(w int) string {
-	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · x select · c value · C name · E export · B block · T shell · R shell · P pull · U push · t template · S snapshot · v audit · f lint · ? help · q quit"
+	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · x select · c value · C name · E export · B block · T shell · R shell · P pull · U push · t template · S snapshot · / search · v audit · f lint · ? help · q quit"
 	if m.toast != "" && time.Since(m.toastAt) < toastDur {
 		hint = dotStyle.Render("• ") + m.toast
 	}
@@ -671,6 +674,45 @@ func (m Model) editorView() string {
 		dimStyle.Render("ctrl+s save · esc cancel"),
 	}
 	box := panelStyle.Width(min(m.width-4, 84)).Render(strings.Join(lines, "\n"))
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
+// searchView is the fuzzy search overlay for filtering keys by name/value.
+func (m Model) searchView() string {
+	items := m.displayKeys()
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Fuzzy Search"))
+	b.WriteString("\n\n")
+	b.WriteString(m.input.View())
+	b.WriteString("\n\n")
+	if len(m.searchResults) == 0 {
+		b.WriteString(dimStyle.Render("  no matches"))
+	} else {
+		maxResults := 10
+		for n := 0; n < len(m.searchResults) && n < maxResults; n++ {
+			idx := m.searchResults[n]
+			key := items[idx].key
+			val, _ := m.valueFor(key)
+			if !m.revealKey(key) {
+				val = maskVal()
+			}
+			line := fmt.Sprintf("  %-24s %s", truncate(key, 24), truncate(val, 28))
+			if n == m.searchIdx {
+				line = curStyle.Render(line)
+			} else {
+				line = dimStyle.Render(line)
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		if len(m.searchResults) > maxResults {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  … %d more", len(m.searchResults)-maxResults)))
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  enter open · j/k navigate · esc close"))
+	box := panelStyle.Width(66).Render(b.String())
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
 
@@ -788,7 +830,7 @@ func (m Model) helpView() string {
 		"  t          generate a sanitized .env.example template",
 		"  S          encrypted snapshots (create / restore / delete)",
 		"  g / G      jump to top / bottom",
-		"  ?          toggle this help",
+		"  ? / /      toggle help / fuzzy search keys & values",
 		"  q          quit",
 		"",
 		dimStyle.Render("Values are masked by default; press s to reveal all, space to reveal the"),

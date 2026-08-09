@@ -78,6 +78,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.snapshotsView {
 			return m.updateSnapshots(msg)
 		}
+		if m.searching {
+			return m.updateSearch(msg)
+		}
 		return m.handleKey(msg)
 	case toastClearMsg:
 		m.toast = ""
@@ -213,9 +216,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.generateTemplate()
 	case "S":
 		return m.openSnapshots()
-	case "?", "/":
+	case "?":
 		m.showHelp = !m.showHelp
 		return m, nil
+	case "/":
+		return m.openSearch()
 	}
 	return m, nil
 }
@@ -784,4 +789,50 @@ func (m Model) runPassAction(pass string) (tea.Model, tea.Cmd) {
 	m.passAction, m.passSnapshot = "", ""
 	m.snapshotsView = true
 	return m, toastCmd()
+}
+
+// openSearch starts the fuzzy key/value search overlay.
+func (m Model) openSearch() (tea.Model, tea.Cmd) {
+	m.searching = true
+	m.searchResults = m.computeSearch("")
+	m.searchIdx = 0
+	m.input.SetValue("")
+	m.input.Placeholder = "fuzzy search keys / values…"
+	m.input.EchoMode = textinput.EchoNormal
+	m.input.Focus()
+	return m, nil
+}
+
+func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.searching = false
+		m.input.Blur()
+		return m, nil
+	case "enter":
+		if len(m.searchResults) > 0 {
+			m.keyIdx = m.searchResults[m.searchIdx]
+			m.focus = panelKeys
+		}
+		m.searching = false
+		m.input.Blur()
+		m.toastf("")
+		return m, nil
+	case "j", "down":
+		if len(m.searchResults) > 0 {
+			m.searchIdx = clamp(m.searchIdx+1, 0, len(m.searchResults)-1)
+		}
+		return m, nil
+	case "k", "up":
+		if len(m.searchResults) > 0 {
+			m.searchIdx = clamp(m.searchIdx-1, 0, len(m.searchResults)-1)
+		}
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.searchResults = m.computeSearch(m.input.Value())
+		m.searchIdx = 0
+		return m, cmd
+	}
 }

@@ -137,6 +137,11 @@ type Model struct {
 	passAction    string // "create" / "restore"
 	passSnapshot  string
 
+	// Fuzzy search.
+	searching     bool
+	searchResults []int
+	searchIdx     int
+
 	width  int
 	height int
 }
