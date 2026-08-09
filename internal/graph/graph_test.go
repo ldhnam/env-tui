@@ -42,13 +42,21 @@ func TestRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if !strings.Contains(out, "payment-api") {
 		t.Errorf("missing service name:\n%s", out)
+	}
+	if !strings.Contains(lines[0], "┌") || !strings.Contains(lines[1], "payment-api") {
+		t.Errorf("missing service box:\n%s", out)
 	}
 	if !strings.Contains(out, "DATABASE_URL") || !strings.Contains(out, "PostgreSQL") {
 		t.Errorf("missing database node:\n%s", out)
 	}
 	if !strings.Contains(out, "REDIS_URL") || !strings.Contains(out, "Redis") {
 		t.Errorf("missing redis node:\n%s", out)
+	}
+	// arrows and junctions present
+	if !strings.Contains(out, "▼") || !strings.Contains(out, "┼") {
+		t.Errorf("missing arrows/junction:\n%s", out)
 	}
 }
