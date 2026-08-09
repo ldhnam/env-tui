@@ -8,7 +8,7 @@ import (
 )
 
 func (m Model) Init() tea.Cmd {
-	return auditCmd(m.dir)
+	return tea.Batch(auditCmd(m.dir), lintCmd(m.dir))
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -31,6 +31,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, toastCmd()
 		}
 		m.audit = msg.rep
+		return m, nil
+	case lintMsg:
+		m.lintScan = false
+		if msg.err != nil {
+			m.toastf("lint scan failed: %v", msg.err)
+			return m, toastCmd()
+		}
+		m.lint = msg.rep
 		return m, nil
 	}
 	return m, nil
@@ -72,13 +80,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.copyKey()
 	case "v":
 		m.auditView = !m.auditView
+		if m.auditView {
+			m.lintView = false
+		}
+		return m, nil
+	case "f":
+		m.lintView = !m.lintView
+		if m.lintView {
+			m.auditView = false
+		}
 		return m, nil
 	case "r":
 		m.reload()
 		m.audit = nil
 		m.auditScan = true
-		m.toastf("reloaded %d file(s), scanning code…", len(m.files))
-		return m, tea.Batch(auditCmd(m.dir), toastCmd())
+		m.lint = nil
+		m.lintScan = true
+		m.toastf("reloaded %d file(s), rescanning…", len(m.files))
+		return m, tea.Batch(auditCmd(m.dir), lintCmd(m.dir), toastCmd())
 	case "?", "/":
 		m.showHelp = !m.showHelp
 		return m, nil
@@ -109,7 +128,7 @@ func (m *Model) move(d int) {
 			m.keyIdx = clamp(m.keyIdx+d, 0, len(m.displayKeys())-1)
 		}
 	case panelMissing:
-		if m.rep == nil || m.auditView {
+		if m.rep == nil || m.bottomView() {
 			return
 		}
 		m.missIdx = clamp(m.missIdx+d, 0, len(m.rep.Missing)-1)
@@ -141,8 +160,8 @@ func clamp(v, lo, hi int) int {
 
 // autofill opens the value prompt for the selected missing key.
 func (m Model) autofill() (tea.Model, tea.Cmd) {
-	if m.auditView {
-		m.toastf("switch back to Missing Keys (v) to autofill")
+	if m.bottomView() {
+		m.toastf("switch back to Missing Keys (v/f) to autofill")
 		return m, toastCmd()
 	}
 	st := m.currentState()
@@ -164,8 +183,8 @@ func (m Model) autofill() (tea.Model, tea.Cmd) {
 // copyKey copies the selected key's value (from primary, else first source)
 // to the system clipboard.
 func (m Model) copyKey() (tea.Model, tea.Cmd) {
-	if m.auditView {
-		m.toastf("switch back to Missing Keys (v) to copy")
+	if m.bottomView() {
+		m.toastf("switch back to Missing Keys (v/f) to copy")
 		return m, toastCmd()
 	}
 	st := m.currentState()

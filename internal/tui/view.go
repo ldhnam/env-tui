@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"env-tui/internal/diff"
+	"env-tui/internal/lint"
 )
 
 var (
@@ -63,9 +64,12 @@ func (m Model) View() string {
 		m.detailPane(colsH, m.detailW(w)),
 	)
 	var bottom string
-	if m.auditView {
+	switch {
+	case m.auditView:
 		bottom = m.auditPane(missH, w)
-	} else {
+	case m.lintView:
+		bottom = m.lintPane(missH, w)
+	default:
 		bottom = m.missingPane(missH, w)
 	}
 	body := lipgloss.JoinVertical(lipgloss.Top, cols, bottom)
@@ -110,7 +114,13 @@ func (m Model) filesPane(h, w int) string {
 		if i < len(m.selec) && m.selec[i] {
 			mark = "x"
 		}
-		rows = append(rows, fmt.Sprintf("[%s] %s", mark, f.Label()))
+		name := f.Label()
+		if m.lint != nil {
+			if n := len(m.lint.ByPath[f.Path]); n > 0 {
+				name += " " + diffStyle.Render("⚠"+strconv.Itoa(n))
+			}
+		}
+		rows = append(rows, fmt.Sprintf("[%s] %s", mark, name))
 	}
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Target Files"))
@@ -134,11 +144,15 @@ func (m Model) keysPane(h, w int) string {
 	innerH := h - 2
 	items := m.displayKeys()
 	inv := m.inventoryKeys()
+	lintCounts := m.lintCountByKey()
 	var rows []string
 	for _, it := range items {
 		row := m.keyGlyph(it) + " " + it.key
 		if n := m.refCount(it.key); n > 0 {
 			row += " " + dimStyle.Render("×"+strconv.Itoa(n))
+		}
+		if n := lintCounts[it.key]; n > 0 {
+			row += diffStyle.Render(" ⚠" + strconv.Itoa(n))
 		}
 		if !it.ghost && m.audit != nil {
 			if _, used := m.audit.Usages[it.key]; !used && inv[it.key] {
@@ -254,6 +268,10 @@ func (m Model) detailPane(h, w int) string {
 		b.WriteString("\n")
 	}
 	m.codeRefLine(key, &b)
+	if n := m.lintCountByKey()[key]; n > 0 {
+		b.WriteString(diffStyle.Render(fmt.Sprintf("Lint : %d issue(s) — press f", n)))
+		b.WriteString("\n")
+	}
 	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(b.String(), innerH))
 }
 
@@ -431,8 +449,86 @@ func (m Model) auditPane(h, w int) string {
 	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(b.String(), innerH))
 }
 
+// lintCountByKey maps each key to the number of lint issues across all files.
+func (m Model) lintCountByKey() map[string]int {
+	out := make(map[string]int)
+	if m.lint == nil {
+		return out
+	}
+	for _, iss := range m.lint.Issues {
+		if iss.Key != "" {
+			out[iss.Key]++
+		}
+	}
+	return out
+}
+
+// lintPane lists format & naming issues per file.
+func (m Model) lintPane(h, w int) string {
+	innerH := h - 2
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Format & Naming Lint"))
+	if m.lint != nil {
+		b.WriteString(fmt.Sprintf("  (%d files · %d issues)", m.lint.Files, len(m.lint.Issues)))
+	} else if m.lintScan {
+		b.WriteString(dimStyle.Render("  (linting .env files…)"))
+	} else {
+		b.WriteString(dimStyle.Render("  (no data)"))
+	}
+	b.WriteString(dimStyle.Render("  [f close]"))
+	b.WriteString("\n")
+
+	if m.lint == nil {
+		if m.lintScan {
+			b.WriteString(dimStyle.Render("  checking UPPER_SNAKE_CASE, syntax, whitespace…"))
+			b.WriteString("\n")
+		} else {
+			b.WriteString(dimStyle.Render("  run 'r' to scan"))
+			b.WriteString("\n")
+		}
+		return panelStyle.Width(w).Height(h - 2).Render(b.String())
+	}
+	if len(m.lint.Issues) == 0 {
+		b.WriteString(matchStyle.Render("  clean: keys well-formed, no whitespace or syntax issues"))
+		b.WriteString("\n")
+		return panelStyle.Width(w).Height(h - 2).Render(b.String())
+	}
+
+	paths := make([]string, 0, len(m.lint.ByPath))
+	for p := range m.lint.ByPath {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		b.WriteString(dimStyle.Render(shortName(p)))
+		b.WriteString("\n")
+		for _, iss := range m.lint.ByPath[p] {
+			key := iss.Key
+			if key == "" {
+				key = "-"
+			}
+			line := fmt.Sprintf("  L%-3d %-18s %-11s %s",
+				iss.Line, truncate(key, 18), m.kindStyle(iss.Kind), dimStyle.Render(iss.Detail))
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(b.String(), innerH))
+}
+
+func (m Model) kindStyle(k lint.Kind) string {
+	switch k {
+	case lint.BadName, lint.Syntax:
+		return missStyle.Render(string(k))
+	case lint.Whitespace, lint.Duplicate:
+		return diffStyle.Render(string(k))
+	default:
+		return dimStyle.Render(string(k))
+	}
+}
+
 func (m Model) footer(w int) string {
-	hint := "j/k nav · tab focus · s secrets · x select · a autofill · c copy · v audit · r reload · ? help · q quit"
+	hint := "j/k nav · tab focus · s secrets · x select · a autofill · c copy · v audit · f lint · r reload · ? help · q quit"
 	if m.toast != "" && time.Since(m.toastAt) < toastDur {
 		hint = dotStyle.Render("• ") + m.toast
 	}
@@ -468,6 +564,7 @@ func (m Model) helpView() string {
 		"  a          autofill selected missing key into primary .env",
 		"  c          copy selected key's value to clipboard",
 		"  v          toggle Code Audit (ghost / zombie / used-but-missing)",
+		"  f          toggle Format & Naming Lint (bad names / syntax / whitespace)",
 		"  r          rescan directory + re-audit source code",
 		"  g / G      jump to top / bottom",
 		"  ?          toggle this help",

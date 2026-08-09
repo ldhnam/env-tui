@@ -35,6 +35,7 @@ Developers constantly juggle `.env` files across microservices and git branches.
   - **Ghost keys** — referenced in code but missing from *all* `.env` files (runtime breaks waiting to happen).
   - **Used-but-missing** — referenced in code and present elsewhere, but not in your local `.env`.
   - **Zombie keys** — defined in `.env` files but never referenced anywhere in the source code.
+- **Format & Naming Lint** — flags non-`UPPER_SNAKE_CASE` keys, malformed `KEY=VALUE` syntax (missing `=`, unclosed quotes), accidental whitespace (around `=`, in values, leading indentation), duplicate keys, and empty values — with per-line findings grouped by file.
 - **Obfuscation mode** — sensitive values are masked as `••••••` until you press `s`.
 - **Interactive sync** — press `a` on a missing key to pull its name into your local `.env` with a placeholder prompt; press `c` to copy a value straight to the clipboard.
 - **Remote-aware** — files like `.env.staging` are tagged `(remote)` and treated as deployed environments. The same source model can be wired to secret managers (Doppler, Infisical, AWS SSM, …).
@@ -74,6 +75,7 @@ env-tui ~/projects/payment-service
 | `a`                 | autofill the selected missing key into the primary `.env` |
 | `c`                 | copy the selected key's value to the clipboard |
 | `v`                 | toggle the Code Audit panel                     |
+| `f`                 | toggle the Format & Naming Lint panel           |
 | `r`                 | rescan the directory + re-audit source code      |
 | `g` / `G`           | jump to top / bottom                     |
 | `?`                 | toggle help                              |
@@ -89,6 +91,13 @@ env-tui ~/projects/payment-service
    - **Ghost Keys** — referenced in code but missing from every `.env` file. Also surfaced at the top of the **Keys** panel (marked `✗`) so they're browsable and navigable.
    - **Used but missing from the primary env** — present in other sources but absent locally.
    - **Zombie Keys** — defined in `.env` files but never referenced in code (marked `z` in the Keys list). Candidates for cleanup.
+6. **Format & Naming Lint** (`f`) — per-file list of issues with line numbers and kinds:
+   - `bad-name` — key is not `UPPER_SNAKE_CASE` (e.g. `databaseUrl`, `MY-KEY`, `123KEY`).
+   - `whitespace` — accidental spaces around `=`, leading indentation, or leading/trailing spaces in values.
+   - `syntax` — missing `=` (expected `KEY=VALUE`), empty key name, unclosed quotes.
+   - `duplicate` — the same key defined more than once in a file.
+   - `empty-value` — key present with no value.
+   Affected files get a `⚠N` badge in **Target Files**, and flagged keys carry a `⚠N` marker in the **Keys** panel and detail view.
 
 ## Code Audit coverage
 

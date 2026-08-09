@@ -10,6 +10,7 @@ import (
 
 	"env-tui/internal/audit"
 	"env-tui/internal/diff"
+	"env-tui/internal/lint"
 )
 
 func testModel(t *testing.T) Model {
@@ -274,5 +275,55 @@ func TestKeysPaneShowsRefs(t *testing.T) {
 	v := m.View()
 	if !strings.Contains(v, "REDIS_URL") || !strings.Contains(v, "×1") {
 		t.Errorf("keys pane should show ref counts:\n%s", v)
+	}
+}
+
+func TestLintView(t *testing.T) {
+	dir := t.TempDir()
+	content := "PORT=3000\nport=1\nPORT = 4000\nEMPTY=\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	m.width, m.height = 100, 30
+	rep, err := lint.Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = update(m, lintMsg{rep: rep})
+	if m.lint == nil {
+		t.Fatal("lint report not stored")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	if !m.lintView {
+		t.Fatal("f should toggle lint view")
+	}
+	v := m.View()
+	for _, want := range []string{"Format & Naming Lint", "bad-name", "whitespace"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("lint view missing %q", want)
+		}
+	}
+	if !strings.Contains(v, "⚠5") {
+		t.Errorf("files panel should show lint count badge:\n%s", v)
+	}
+	// detail pane surfaces lint count for a flagged key
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	if m.lintView {
+		t.Error("f should close lint view")
+	}
+	m.focus = panelKeys
+	m.keyIdx = 0 // PORT (env keys first)
+	if !strings.Contains(m.View(), "Lint :") {
+		t.Error("detail pane should surface lint issues for PORT")
+	}
+	// toggling audit clears lint view and vice versa
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	if !m.auditView {
+		t.Error("v should open audit view")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	if !m.lintView || m.auditView {
+		t.Error("f should switch to lint view and close audit")
 	}
 }

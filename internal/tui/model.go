@@ -12,6 +12,7 @@ import (
 	"env-tui/internal/audit"
 	"env-tui/internal/diff"
 	"env-tui/internal/envfile"
+	"env-tui/internal/lint"
 )
 
 type panel int
@@ -50,6 +51,18 @@ func auditCmd(dir string) tea.Cmd {
 	}
 }
 
+type lintMsg struct {
+	rep *lint.Report
+	err error
+}
+
+func lintCmd(dir string) tea.Cmd {
+	return func() tea.Msg {
+		rep, err := lint.Scan(dir)
+		return lintMsg{rep: rep, err: err}
+	}
+}
+
 type Model struct {
 	dir   string
 	files []*envfile.File
@@ -69,6 +82,10 @@ type Model struct {
 	auditView bool
 	auditScan bool // scan in flight
 
+	lint     *lint.Report
+	lintView bool
+	lintScan bool // scan in flight
+
 	toast   string
 	toastAt time.Time
 
@@ -81,12 +98,18 @@ type Model struct {
 }
 
 func New(dir string) Model {
-	m := Model{dir: dir, auditScan: true}
+	m := Model{dir: dir, auditScan: true, lintScan: true}
 	m.input = textinput.New()
 	m.input.Placeholder = "value"
 	m.input.CharLimit = 4096
 	m.reload()
 	return m
+}
+
+// bottomView reports whether the bottom panel is showing audit or lint
+// (i.e. the missing-keys panel is not active).
+func (m Model) bottomView() bool {
+	return m.auditView || m.lintView
 }
 
 func (m *Model) reload() {
