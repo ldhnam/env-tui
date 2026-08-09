@@ -142,6 +142,9 @@ type Model struct {
 	searchResults []int
 	searchIdx     int
 
+	// Scroll offset for read-only panels (lint/audit).
+	paneScroll int
+
 	width  int
 	height int
 }

@@ -187,12 +187,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openEditor()
 	case "v":
 		m.auditView = !m.auditView
+		m.paneScroll = 0
 		if m.auditView {
 			m.lintView = false
 		}
 		return m, nil
 	case "f":
 		m.lintView = !m.lintView
+		m.paneScroll = 0
 		if m.lintView {
 			m.auditView = false
 		}
@@ -239,18 +241,51 @@ func prevPanel(p panel) panel {
 	return p - 1
 }
 
-// handleMouse implements hover-to-reveal: moving over a Keys panel row selects
-// and reveals that key; hovering the detail pane reveals the focused key.
+// handleMouse implements hover-to-reveal and wheel scrolling.
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	switch msg.Action {
+	ev := tea.MouseEvent(msg)
+	if ev.IsWheel() {
+		switch ev.Button {
+		case tea.MouseButtonWheelUp:
+			return m.scrollWheel(-1)
+		case tea.MouseButtonWheelDown:
+			return m.scrollWheel(1)
+		}
+		return m, nil
+	}
+	switch ev.Action {
 	case tea.MouseActionMotion:
-		key, idx := m.hoverTarget(msg.X, msg.Y)
+		key, idx := m.hoverTarget(ev.X, ev.Y)
 		m.hoverKey = key
 		if idx >= 0 {
 			m.keyIdx = idx
 		}
 	case tea.MouseActionRelease:
 		m.hoverKey = ""
+	}
+	return m, nil
+}
+
+// scrollWheel scrolls the focused list or a read-only panel.
+func (m Model) scrollWheel(d int) (tea.Model, tea.Cmd) {
+	if m.lintView || m.auditView {
+		m.paneScroll += d
+		if m.paneScroll < 0 {
+			m.paneScroll = 0
+		}
+		return m, nil
+	}
+	switch m.focus {
+	case panelFiles:
+		m.fileIdx = clamp(m.fileIdx+d, 0, len(m.files)-1)
+	case panelKeys:
+		if m.rep != nil {
+			m.keyIdx = clamp(m.keyIdx+d, 0, len(m.displayKeys())-1)
+		}
+	case panelMissing:
+		if m.rep != nil && !m.bottomView() {
+			m.missIdx = clamp(m.missIdx+d, 0, len(m.rep.Missing)-1)
+		}
 	}
 	return m, nil
 }

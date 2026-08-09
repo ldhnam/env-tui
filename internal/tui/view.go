@@ -546,7 +546,7 @@ func (m Model) auditPane(h, w int) string {
 		b.WriteString(matchStyle.Render("  clean: every used var is defined, nothing unused"))
 		b.WriteString("\n")
 	}
-	return renderPane(w, h, b.String())
+	return renderPane(w, h, scrollLines(b.String(), m.paneScroll, h-2))
 }
 
 // lintCountByKey maps each key to the number of lint issues across all files.
@@ -623,7 +623,7 @@ func (m Model) lintPane(h, w int) string {
 			b.WriteString("\n")
 		}
 	}
-	return renderPane(w, h, b.String())
+	return renderPane(w, h, scrollLines(b.String(), m.paneScroll, h-2))
 }
 
 func (m Model) kindStyle(k lint.Kind) string {
@@ -896,6 +896,25 @@ func truncateLines(s string, max int) string {
 		return s
 	}
 	return strings.Join(lines[:max], "\n")
+}
+
+// scrollLines returns up to max lines from content, starting at offset.
+func scrollLines(s string, offset, max int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if offset > len(lines) {
+		offset = len(lines)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + max
+	if end > len(lines) {
+		end = len(lines)
+	}
+	if offset >= end {
+		return ""
+	}
+	return strings.Join(lines[offset:end], "\n")
 }
 
 func maskVal() string {

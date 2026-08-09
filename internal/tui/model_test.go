@@ -1071,3 +1071,28 @@ func TestSearchFlow(t *testing.T) {
 		t.Error("esc should cancel search without changing selection")
 	}
 }
+
+func TestWheelScroll(t *testing.T) {
+	m := testModel(t)
+	m.focus = panelKeys
+	// wheel down moves the key cursor
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown})
+	if m.keyIdx != 1 {
+		t.Errorf("wheel down keyIdx = %d, want 1", m.keyIdx)
+	}
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp})
+	if m.keyIdx != 0 {
+		t.Errorf("wheel up keyIdx = %d, want 0", m.keyIdx)
+	}
+	// in audit view, wheel adjusts paneScroll
+	m.auditView = true
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown})
+	if m.paneScroll != 1 {
+		t.Errorf("paneScroll = %d, want 1", m.paneScroll)
+	}
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown})
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp})
+	if m.paneScroll != 1 {
+		t.Errorf("paneScroll after up = %d, want 1", m.paneScroll)
+	}
+}
