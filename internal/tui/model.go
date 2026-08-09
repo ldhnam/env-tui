@@ -12,6 +12,7 @@ import (
 	"github.com/ldhnam/env-tui/internal/audit"
 	"github.com/ldhnam/env-tui/internal/diff"
 	"github.com/ldhnam/env-tui/internal/envfile"
+	"github.com/ldhnam/env-tui/internal/gitguard"
 	"github.com/ldhnam/env-tui/internal/lint"
 	"github.com/ldhnam/env-tui/internal/secrets"
 )
@@ -91,6 +92,8 @@ type Model struct {
 	lintView bool
 	lintScan bool // scan in flight
 
+	git *gitguard.Report // git-ignore safety status for discovered files
+
 	toast   string
 	toastAt time.Time
 
@@ -167,6 +170,7 @@ func (m *Model) reload() {
 	selected := m.selectedPaths()
 	m.prim = envfile.Primary(selected)
 	m.rep = diff.Build(m.prim, selected, envs)
+	m.git = gitguard.Check(m.dir, paths)
 	m.clampCursors()
 }
 

@@ -2,7 +2,9 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 
 	"github.com/ldhnam/env-tui/internal/audit"
 	"github.com/ldhnam/env-tui/internal/diff"
+	"github.com/ldhnam/env-tui/internal/gitguard"
 	"github.com/ldhnam/env-tui/internal/lint"
 )
 
@@ -501,5 +504,89 @@ func TestSecretLeakMarkers(t *testing.T) {
 	v := m.View()
 	if !strings.Contains(v, "Secrets Detected") || !strings.Contains(v, "Stripe") {
 		t.Errorf("lint panel should surface the leak:\n%s", v)
+	}
+}
+
+func stripANSI(s string) string {
+	return regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`).ReplaceAllString(s, "")
+}
+
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestGitSafety(t *testing.T) {
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-q")
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".gitignore", ".env.local\n")
+	write(".env.local", "SECRET=1\n")
+	write(".env.dev", "SECRET=2\n")
+	write(".env.example", "SECRET=\n")
+
+	m := New(dir)
+	m.width, m.height = 100, 30
+	if m.git == nil || !m.git.IsRepo {
+		t.Fatal("should detect the git repo")
+	}
+	envLocal := filepath.Join(dir, ".env.local")
+	envDev := filepath.Join(dir, ".env.dev")
+	envExample := filepath.Join(dir, ".env.example")
+	if m.git.ByPath[envLocal] != gitguard.Ignored {
+		t.Errorf(".env.local = %v, want Ignored", m.git.ByPath[envLocal])
+	}
+	if m.git.ByPath[envDev] != gitguard.Exposed {
+		t.Errorf(".env.dev = %v, want Exposed", m.git.ByPath[envDev])
+	}
+	if m.git.ByPath[envExample] != gitguard.Exposed {
+		t.Errorf(".env.example = %v, want Exposed", m.git.ByPath[envExample])
+	}
+	v := m.View()
+	if !strings.Contains(v, "git: 1 exposed") {
+		t.Errorf("header badge missing 'git: 1 exposed':\n%s", v)
+	}
+	// per-file markers: ignored ✓, exposed !
+	plain := stripANSI(v)
+	if !strings.Contains(plain, ".env.local ✓") || !strings.Contains(plain, ".env.dev !") {
+		t.Errorf("files panel missing git markers:\n%s", plain)
+	}
+}
+
+func TestGitSafetyProtected(t *testing.T) {
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".env*\n!.env.example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".env", ".env.local", ".env.staging", ".env.example"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("X=1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := New(dir)
+	m.width, m.height = 100, 30
+	v := m.View()
+	if !strings.Contains(v, "git: protected") {
+		t.Errorf("header should show 'git: protected':\n%s", v)
+	}
+}
+
+func TestGitNotARepo(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("X=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	m.width, m.height = 100, 30
+	if !strings.Contains(m.View(), "git: n/a") {
+		t.Error("non-repo should show 'git: n/a'")
 	}
 }

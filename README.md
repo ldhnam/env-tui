@@ -19,6 +19,7 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 🧹 **Format & naming lint** — `UPPER_SNAKE_CASE`, syntax, whitespace, duplicates, empty values
 - 🚨 **Leak detector & pre-commit guard** — flags Stripe / AWS / OpenAI / GitHub token patterns; autofill requires `y`/`n` before saving a secret-like value
 - 🕶️ **Stealth mode** — values masked as `••••••••`; reveal all (`s`), one key (`space`), or hover with the mouse
+- 🛡️ **Safety Check** — a header badge reports whether `.env`/secret files are git-ignored, with per-file markers in Target Files (`✓` ignored · `!` not ignored · `T` tracked · `–` not a git repo)
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```
@@ -105,7 +106,8 @@ env-tui ~/projects/payment-service
 
 ### Panels
 
-1. **Target Files** — checkbox list of every discovered `.env*` source. `.env`-local variants are `(local)`; deployment files are tagged `(remote)`.
+1. **Target Files** — checkbox list of every discovered `.env*` source. `.env`-local variants are `(local)`; deployment files are tagged `(remote)`. Each file also carries a git-safety glyph (`✓` ignored, `!` not ignored, `T` tracked in git, `–` not a repo) and a lint issue badge; `.env.example` templates are exempt from git warnings since they're meant to be committed.
+   - The header shows an overall **Safety Check** badge: `git: protected`, `git: N exposed`, or `git: n/a` when not inside a git work tree. Ignore status is resolved with `git check-ignore` and covers `.gitignore`, `.git/info/exclude`, and negation rules — files already tracked are flagged as `T` since ignore rules can't protect them.
 2. **Keys** — union of all keys across selected sources with a status glyph: `✓` MATCH, `⚠` DIFF, `✗` MISSING.
 3. **Detail** — the focused key's value in each selected source (masked by default; `space` or hover to reveal), its aggregate status, a `Format Valid` hint, and how many times it's referenced in code.
 4. **Missing Keys** — keys absent from the primary local file (`.env.local` preferred, else `.env`), with the sources that do define them. `a` autofills, `c` copies; keys referenced in code are flagged `[used ×N]`.

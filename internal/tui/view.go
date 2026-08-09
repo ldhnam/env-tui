@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ldhnam/env-tui/internal/diff"
+	"github.com/ldhnam/env-tui/internal/gitguard"
 	"github.com/ldhnam/env-tui/internal/lint"
 )
 
@@ -107,11 +109,58 @@ func (m Model) header(w int) string {
 	default:
 		right = dotStyle.Render("● Stealth masked [s]")
 	}
+	right += "  " + m.gitBadge()
 	pad := max(w-lipgloss.Width(title)-lipgloss.Width(right), 1)
 	return lipgloss.NewStyle().
 		Bold(true).
 		Foreground(accent).
 		Render(title + strings.Repeat(" ", pad) + right)
+}
+
+// gitBadge is the Safety Check status indicator shown in the header.
+func (m Model) gitBadge() string {
+	if m.git == nil || !m.git.IsRepo {
+		return dimStyle.Render("git: n/a")
+	}
+	risks := 0
+	for p, st := range m.git.ByPath {
+		if isTemplateFile(p) {
+			continue
+		}
+		if st == gitguard.Exposed || st == gitguard.Tracked {
+			risks++
+		}
+	}
+	if risks > 0 {
+		return missStyle.Render(fmt.Sprintf("git: %d exposed", risks))
+	}
+	return matchStyle.Render("git: protected")
+}
+
+// isTemplateFile reports whether a path is a committed template
+// (.env.example) that is intentionally kept in the repository.
+func isTemplateFile(path string) bool {
+	return strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".example")
+}
+
+// gitFileMarker returns the per-file git safety glyph.
+func (m Model) gitFileMarker(path string) string {
+	if m.git == nil {
+		return ""
+	}
+	if isTemplateFile(path) {
+		return ""
+	}
+	switch m.git.ByPath[path] {
+	case gitguard.Ignored:
+		return " " + matchStyle.Render("✓")
+	case gitguard.Tracked:
+		return " " + diffStyle.Render("T")
+	case gitguard.Exposed:
+		return " " + missStyle.Render("!")
+	default:
+		return " " + dimStyle.Render("–")
+	}
 }
 
 // filesPane renders the selectable list of discovered sources.
@@ -129,6 +178,7 @@ func (m Model) filesPane(h, w int) string {
 				name += " " + diffStyle.Render("⚠"+strconv.Itoa(n))
 			}
 		}
+		name += m.gitFileMarker(f.Path)
 		rows = append(rows, fmt.Sprintf("[%s] %s", mark, name))
 	}
 	var b strings.Builder
@@ -634,6 +684,9 @@ func (m Model) helpView() string {
 		"",
 		dimStyle.Render("Autofill is guarded: values that match Stripe / AWS / OpenAI / GitHub token"),
 		dimStyle.Render("patterns require a y/n confirmation before being written to .env."),
+		"",
+		dimStyle.Render("Safety Check: the header git badge shows whether .env files are git-ignored."),
+		dimStyle.Render("In Target Files: ✓ ignored · ! not ignored · T tracked · – not a git repo."),
 		dimStyle.Render("Code Audit scans .js .ts .py .go .rs .php .rb .sh and more for env var usage."),
 		dimStyle.Render("Press q or ? to close."),
 	}
