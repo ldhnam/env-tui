@@ -155,6 +155,10 @@ type Model struct {
 	workspaces    []workspace
 	wsIdx         int
 
+	// Dependency graph and schema validation overlays.
+	graphView    bool
+	validateView bool
+
 	width  int
 	height int
 }

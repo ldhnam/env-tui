@@ -1167,3 +1167,29 @@ func TestFindWorkspaces(t *testing.T) {
 		t.Errorf("root marker = %q, want pnpm", rootWS.marker)
 	}
 }
+
+func TestGraphAndValidateOverlays(t *testing.T) {
+	m := testModel(t)
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+	if !m.graphView {
+		t.Fatal("D should open the dependency graph")
+	}
+	if !strings.Contains(m.View(), "Dependency Graph") {
+		t.Error("graph overlay missing")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.graphView {
+		t.Error("esc should close the graph")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("V")})
+	if !m.validateView {
+		t.Fatal("V should open validate")
+	}
+	if !strings.Contains(m.View(), ".envigator.yaml") {
+		t.Error("validate overlay should mention the missing schema")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("V")})
+	if m.validateView {
+		t.Error("V should close validate")
+	}
+}

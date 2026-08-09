@@ -304,3 +304,12 @@ func LoadForRun(dir string) (map[string]string, error) {
 	}
 	return env, nil
 }
+
+// PrimaryPath returns the primary .env path for dir, or "".
+func PrimaryPath(dir string) (string, error) {
+	paths, err := Discover(dir)
+	if err != nil {
+		return "", err
+	}
+	return Primary(paths), nil
+}

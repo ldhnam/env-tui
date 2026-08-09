@@ -11,8 +11,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ldhnam/envigator/internal/diff"
+	"github.com/ldhnam/envigator/internal/envfile"
 	"github.com/ldhnam/envigator/internal/gitguard"
+	"github.com/ldhnam/envigator/internal/graph"
 	"github.com/ldhnam/envigator/internal/lint"
+	"github.com/ldhnam/envigator/internal/schema"
 )
 
 var (
@@ -47,6 +50,12 @@ func renderPane(w, h int, content string) string {
 func (m Model) View() string {
 	if m.showHelp {
 		return m.helpView()
+	}
+	if m.graphView {
+		return m.graphViewOverlay()
+	}
+	if m.validateView {
+		return m.validateViewOverlay()
 	}
 	if m.workspaceView {
 		return m.workspaceViewOverlay()
@@ -683,6 +692,45 @@ func (m Model) editorView() string {
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
 
+// graphViewOverlay renders the service-to-backend dependency tree.
+func (m Model) graphViewOverlay() string {
+	content, err := graph.Render(m.dir, "")
+	if err != nil {
+		content = "error: " + err.Error()
+	}
+	box := panelStyle.Width(min(m.width-4, 72)).Render(
+		titleStyle.Render("Dependency Graph — "+filepath.Base(m.dir)) + "\n\n" +
+			content + "\n" + dimStyle.Render("  [D close]"),
+	)
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
+// validateViewOverlay validates the current environment against
+// .envigator.yaml.
+func (m Model) validateViewOverlay() string {
+	s, err := schema.Load(m.dir)
+	if err != nil {
+		box := panelStyle.Width(56).Render(
+			titleStyle.Render("Validate") + "\n\n" + dimStyle.Render("no .envigator.yaml — create one to validate") + "\n\n" + dimStyle.Render("[V close]"),
+		)
+		return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+	}
+	primary, _ := envfile.PrimaryPath(m.dir)
+	envName := s.PickEnvironment("", primary)
+	path := s.File(m.dir, envName)
+	values := make(map[string]string)
+	if path != "" {
+		if f, perr := envfile.Parse(path, false); perr == nil {
+			values = f.Values
+		}
+	}
+	content := schema.Render(envName, s.Validate(values))
+	box := panelStyle.Width(min(m.width-4, 72)).Render(
+		titleStyle.Render("Validate") + "\n\n" + content + "\n" + dimStyle.Render("  [V close]"),
+	)
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
 // workspaceViewOverlay lists monorepo/workspace contexts with .env files.
 func (m Model) workspaceViewOverlay() string {
 	var b strings.Builder
@@ -920,6 +968,8 @@ func (m Model) helpView() string {
 		"  S          encrypted snapshots (create / restore / delete)",
 		"  M          profile matrix (all files x all keys)",
 		"  W          monorepo workspace switcher",
+		"  D          environment dependency graph",
+		"  V          validate against .envigator.yaml",
 		"  g / G      jump to top / bottom",
 		"  ? / /      toggle help / fuzzy search keys & values",
 		"  q          quit",

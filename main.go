@@ -13,6 +13,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ldhnam/envigator/internal/envfile"
+	"github.com/ldhnam/envigator/internal/graph"
+	"github.com/ldhnam/envigator/internal/schema"
 	"github.com/ldhnam/envigator/internal/snapshot"
 	"github.com/ldhnam/envigator/internal/tui"
 	"github.com/ldhnam/envigator/internal/vault"
@@ -36,6 +38,12 @@ func main() {
 		case "pull":
 			cliPull(os.Args[2:])
 			return
+		case "graph":
+			cliGraph(os.Args[2:])
+			return
+		case "validate":
+			cliValidate(os.Args[2:])
+			return
 		case "help", "-h", "--help":
 			printUsage()
 			return
@@ -58,6 +66,8 @@ Usage:
   envigator hook install [--pre-commit] [--post-checkout]
   envigator hook check --staged | --ghosts
   envigator pull -vault PROVIDER [-vault-project X] [-vault-env Y] [dir]
+  envigator graph [--name NAME] [dir]
+  envigator validate [--env NAME] [dir]
 
 Flags:
   -vault string        secret manager provider (doppler, vault, op, aws, infisical)
@@ -183,6 +193,50 @@ func promptPassphrase() (string, error) {
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr)
 	return string(b), err
+}
+
+// cliGraph renders the environment dependency tree.
+func cliGraph(args []string) {
+	fs := flag.NewFlagSet("graph", flag.ExitOnError)
+	name := fs.String("name", "", "service name (defaults to the directory basename)")
+	_ = fs.Parse(args)
+	dir := "."
+	if rest := fs.Args(); len(rest) > 0 {
+		dir = rest[0]
+	}
+	out, err := graph.Render(dir, *name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "envigator graph: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Print(out)
+}
+
+// cliValidate validates an environment against .envigator.yaml.
+func cliValidate(args []string) {
+	fs := flag.NewFlagSet("validate", flag.ExitOnError)
+	envName := fs.String("env", "", "environment to validate (from .envigator.yaml)")
+	_ = fs.Parse(args)
+	dir := "."
+	if rest := fs.Args(); len(rest) > 0 {
+		dir = rest[0]
+	}
+	s, err := schema.Load(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "envigator validate: %v\n", err)
+		os.Exit(1)
+	}
+	primary, _ := envfile.PrimaryPath(dir)
+	env := s.PickEnvironment(*envName, primary)
+	path := s.File(dir, env)
+	values := make(map[string]string)
+	if path != "" {
+		if f, perr := envfile.Parse(path, false); perr == nil {
+			values = f.Values
+		}
+	}
+	results := s.Validate(values)
+	fmt.Print(schema.Render(env, results))
 }
 
 // cliPull fetches secrets from a secret manager and writes keys missing from

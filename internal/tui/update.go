@@ -87,6 +87,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.workspaceView {
 			return m.updateWorkspaces(msg)
 		}
+		if m.graphView {
+			if msg.String() == "esc" || msg.String() == "D" || msg.String() == "q" {
+				m.graphView = false
+			}
+			return m, nil
+		}
+		if m.validateView {
+			if msg.String() == "esc" || msg.String() == "V" || msg.String() == "q" {
+				m.validateView = false
+			}
+			return m, nil
+		}
 		return m.handleKey(msg)
 	case toastClearMsg:
 		m.toast = ""
@@ -233,6 +245,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openMatrix()
 	case "W":
 		return m.openWorkspaces()
+	case "D":
+		m.graphView = true
+		return m, nil
+	case "V":
+		m.validateView = true
+		return m, nil
 	}
 	return m, nil
 }

@@ -31,6 +31,8 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 🪝 **Git Hook Integration** — `envigator hook install` adds a pre-commit hook that blocks commits with unencrypted credentials and a post-checkout hook that warns when a branch switch introduces ghost keys
 - 🏗️ **Monorepo Autodetect** — press `W` to discover and switch between nested workspace contexts (pnpm, turbo, go.work, lerna, npm) that contain `.env` files
 - 🔌 **Direct Integration Connectors** — pull straight from Doppler / Infisical / 1Password / Vault / AWS Secrets Manager into local files with `envigator pull -vault <provider>` (same providers also connect natively inside the TUI)
+- 🕸️ **Dependency Graph** — `envigator graph` (or `D` in the TUI) infers service → variable → backend relationships (PostgreSQL, Redis, Stripe, Auth, …) as an ASCII tree
+- 📏 **Environment Schema** — optional `.envigator.yaml` declares per-variable constraints; `envigator validate [--env X]` (or `V` in the TUI) reports `✓`/`✗` with expected vs. actual, e.g. `expected: one of [debug, info, warn, error]`
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```
