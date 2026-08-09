@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ldhnam/envigator/internal/diff"
+	"github.com/ldhnam/envigator/internal/doctor"
 	"github.com/ldhnam/envigator/internal/envfile"
 	"github.com/ldhnam/envigator/internal/gitguard"
 	"github.com/ldhnam/envigator/internal/graph"
@@ -56,6 +57,9 @@ func (m Model) View() string {
 	}
 	if m.validateView {
 		return m.validateViewOverlay()
+	}
+	if m.doctorView {
+		return m.doctorViewOverlay()
 	}
 	if m.workspaceView {
 		return m.workspaceViewOverlay()
@@ -731,6 +735,21 @@ func (m Model) validateViewOverlay() string {
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
 
+// doctorViewOverlay runs the environment health checks in the TUI.
+func (m Model) doctorViewOverlay() string {
+	rep, err := doctor.Run(m.dir)
+	var content string
+	if err != nil {
+		content = "error: " + err.Error()
+	} else {
+		content = doctor.Render(rep)
+	}
+	box := panelStyle.Width(min(m.width-4, 72)).Render(
+		titleStyle.Render("Doctor") + "\n\n" + content + dimStyle.Render("  [X close]"),
+	)
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
 // workspaceViewOverlay lists monorepo/workspace contexts with .env files.
 func (m Model) workspaceViewOverlay() string {
 	var b strings.Builder
@@ -970,6 +989,7 @@ func (m Model) helpView() string {
 		"  W          monorepo workspace switcher",
 		"  D          environment dependency graph",
 		"  V          validate against .envigator.yaml",
+		"  X          envigator doctor (health checks)",
 		"  g / G      jump to top / bottom",
 		"  ? / /      toggle help / fuzzy search keys & values",
 		"  q          quit",

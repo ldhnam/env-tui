@@ -33,6 +33,7 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 🔌 **Direct Integration Connectors** — pull straight from Doppler / Infisical / 1Password / Vault / AWS Secrets Manager into local files with `envigator pull -vault <provider>` (same providers also connect natively inside the TUI)
 - 🕸️ **Dependency Graph** — `envigator graph` (or `D` in the TUI) infers service → variable → backend relationships (PostgreSQL, Redis, Stripe, Auth, …) as an ASCII tree
 - 📏 **Environment Schema** — optional `.envigator.yaml` declares per-variable constraints; `envigator validate [--env X]` (or `V` in the TUI) reports `✓`/`✗` with expected vs. actual, e.g. `expected: one of [debug, info, warn, error]`
+- 🩺 **Doctor** — `envigator doctor` (or `X` in the TUI) runs environment, configuration, and security health checks (gitignore status, tracked secrets, unused/missing/invalid variables, committed credentials, private keys, backup files) and prints a ✓/⚠/✗ report with an error/warning summary
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```

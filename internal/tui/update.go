@@ -99,6 +99,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.doctorView {
+			if msg.String() == "esc" || msg.String() == "X" || msg.String() == "q" {
+				m.doctorView = false
+			}
+			return m, nil
+		}
 		return m.handleKey(msg)
 	case toastClearMsg:
 		m.toast = ""
@@ -250,6 +256,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "V":
 		m.validateView = true
+		return m, nil
+	case "X":
+		m.doctorView = true
 		return m, nil
 	}
 	return m, nil

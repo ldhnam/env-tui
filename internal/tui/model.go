@@ -158,6 +158,7 @@ type Model struct {
 	// Dependency graph and schema validation overlays.
 	graphView    bool
 	validateView bool
+	doctorView   bool
 
 	width  int
 	height int

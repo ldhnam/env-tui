@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
 
+	"github.com/ldhnam/envigator/internal/doctor"
 	"github.com/ldhnam/envigator/internal/envfile"
 	"github.com/ldhnam/envigator/internal/graph"
 	"github.com/ldhnam/envigator/internal/schema"
@@ -44,6 +45,9 @@ func main() {
 		case "validate":
 			cliValidate(os.Args[2:])
 			return
+		case "doctor":
+			cliDoctor(os.Args[2:])
+			return
 		case "help", "-h", "--help":
 			printUsage()
 			return
@@ -68,6 +72,7 @@ Usage:
   envigator pull -vault PROVIDER [-vault-project X] [-vault-env Y] [dir]
   envigator graph [--name NAME] [dir]
   envigator validate [--env NAME] [dir]
+  envigator doctor [dir]
 
 Flags:
   -vault string        secret manager provider (doppler, vault, op, aws, infisical)
@@ -193,6 +198,20 @@ func promptPassphrase() (string, error) {
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr)
 	return string(b), err
+}
+
+// cliDoctor runs environment health checks.
+func cliDoctor(args []string) {
+	dir := "."
+	if len(args) > 0 {
+		dir = args[0]
+	}
+	rep, err := doctor.Run(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "envigator doctor: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Print(doctor.Render(rep))
 }
 
 // cliGraph renders the environment dependency tree.

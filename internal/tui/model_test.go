@@ -1193,3 +1193,18 @@ func TestGraphAndValidateOverlays(t *testing.T) {
 		t.Error("V should close validate")
 	}
 }
+
+func TestDoctorOverlay(t *testing.T) {
+	m := testModel(t)
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	if !m.doctorView {
+		t.Fatal("X should open the doctor overlay")
+	}
+	if !strings.Contains(m.View(), "Envigator Doctor") {
+		t.Error("doctor overlay missing")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	if m.doctorView {
+		t.Error("X should close the doctor overlay")
+	}
+}
