@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"env-tui/internal/audit"
 	"env-tui/internal/diff"
 	"env-tui/internal/envfile"
 )
@@ -37,6 +38,18 @@ type toastClearMsg struct{}
 
 const toastDur = 3 * time.Second
 
+type auditMsg struct {
+	rep *audit.Report
+	err error
+}
+
+func auditCmd(dir string) tea.Cmd {
+	return func() tea.Msg {
+		rep, err := audit.Scan(dir)
+		return auditMsg{rep: rep, err: err}
+	}
+}
+
 type Model struct {
 	dir   string
 	files []*envfile.File
@@ -52,6 +65,10 @@ type Model struct {
 	showSecrets bool
 	showHelp    bool
 
+	audit     *audit.Report
+	auditView bool
+	auditScan bool // scan in flight
+
 	toast   string
 	toastAt time.Time
 
@@ -64,7 +81,7 @@ type Model struct {
 }
 
 func New(dir string) Model {
-	m := Model{dir: dir}
+	m := Model{dir: dir, auditScan: true}
 	m.input = textinput.New()
 	m.input.Placeholder = "value"
 	m.input.CharLimit = 4096

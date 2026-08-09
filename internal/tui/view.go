@@ -2,11 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
+	"env-tui/internal/audit"
 	"env-tui/internal/diff"
 )
 
@@ -66,7 +69,13 @@ func (m Model) View() string {
 		m.keysPane(colsH, m.keysW(w)),
 		m.detailPane(colsH, m.detailW(w)),
 	)
-	body := lipgloss.JoinVertical(lipgloss.Top, cols, m.missingPane(missH, w))
+	var bottom string
+	if m.auditView {
+		bottom = m.auditPane(missH, w)
+	} else {
+		bottom = m.missingPane(missH, w)
+	}
+	body := lipgloss.JoinVertical(lipgloss.Top, cols, bottom)
 	return lipgloss.JoinVertical(lipgloss.Top, m.header(w), body, m.footer(w))
 }
 
@@ -132,7 +141,7 @@ func (m Model) filesPane(h, w int) string {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	return panelStyle.Width(w).Height(h).Render(b.String())
+	return panelStyle.Width(w).Height(h - 2).Render(b.String())
 }
 
 // keysPane renders the union of keys across selected sources with status glyphs.
@@ -140,7 +149,11 @@ func (m Model) keysPane(h, w int) string {
 	innerH := h - 2
 	var rows []string
 	for _, st := range m.rep.All {
-		rows = append(rows, statusGlyph(st)+" "+st.Key)
+		row := statusGlyph(st) + " " + st.Key
+		if n := m.refCount(st.Key); n > 0 {
+			row += " " + dimStyle.Render("×"+strconv.Itoa(n))
+		}
+		rows = append(rows, truncate(row, w-4))
 	}
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Keys"))
@@ -157,7 +170,17 @@ func (m Model) keysPane(h, w int) string {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	return panelStyle.Width(w).Height(h).Render(b.String())
+	return panelStyle.Width(w).Height(h - 2).Render(b.String())
+}
+
+func (m Model) refCount(key string) int {
+	if m.audit == nil {
+		return 0
+	}
+	if u := m.audit.Usages[key]; u != nil {
+		return u.Count
+	}
+	return 0
 }
 
 func statusGlyph(st *diff.KeyState) string {
@@ -179,11 +202,11 @@ func (m Model) detailPane(h, w int) string {
 		b.WriteString(titleStyle.Render("Key"))
 		b.WriteString("\n")
 		b.WriteString(dimStyle.Render("(no keys yet)"))
-		return panelStyle.Width(w).Height(h).Render(b.String())
+		return panelStyle.Width(w).Height(h - 2).Render(b.String())
 	}
 	st := m.currentState()
 	if st == nil {
-		return panelStyle.Width(w).Height(h).Render("")
+		return panelStyle.Width(w).Height(h - 2).Render("")
 	}
 
 	b.WriteString(titleStyle.Render("Key: " + key))
@@ -234,7 +257,53 @@ func (m Model) detailPane(h, w int) string {
 		b.WriteString(dimStyle.Render("Values differ across selected sources."))
 		b.WriteString("\n")
 	}
-	return panelStyle.Width(w).Height(h).Render(truncateLines(b.String(), innerH))
+	m.codeRefLine(key, &b)
+	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(b.String(), innerH))
+}
+
+// codeRefLine renders how the focused key is referenced in the codebase.
+func (m Model) codeRefLine(key string, b *strings.Builder) {
+	if m.audit == nil {
+		if m.auditScan {
+			b.WriteString(dimStyle.Render("Code : scanning project…"))
+		} else {
+			b.WriteString(dimStyle.Render("Code : no audit data"))
+		}
+		b.WriteString("\n")
+		return
+	}
+	u := m.audit.Usages[key]
+	if u == nil {
+		b.WriteString(dimStyle.Render("Code : no references in project"))
+		b.WriteString("\n")
+		return
+	}
+	names := fileNames(u.Files)
+	if len(names) > 3 {
+		names = names[:3]
+		names = append(names, fmt.Sprintf("+%d more", len(u.Files)-3))
+	}
+	line := fmt.Sprintf("Code : %s (%s)",
+		matchStyle.Render(strconv.Itoa(u.Count)+" ref"+plural(u.Count)),
+		dimStyle.Render(strings.Join(names, ", ")))
+	b.WriteString(line)
+	b.WriteString("\n")
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func fileNames(files map[string][]int) []string {
+	out := make([]string, 0, len(files))
+	for f := range files {
+		out = append(out, shortName(f))
+	}
+	sort.Strings(out)
+	return out
 }
 
 // missingPane renders keys absent from the primary local file.
@@ -255,8 +324,12 @@ func (m Model) missingPane(h, w int) string {
 		for _, s := range sources {
 			names = append(names, shortName(s))
 		}
-		rows = append(rows, fmt.Sprintf("  %-28s Present in %s",
-			st.Key, dimStyle.Render(strings.Join(names, ", "))))
+		row := fmt.Sprintf("  %-26s Present in %s",
+			st.Key, dimStyle.Render(strings.Join(names, ", ")))
+		if n := m.refCount(st.Key); n > 0 {
+			row += missStyle.Render(fmt.Sprintf("  [used ×%d]", n))
+		}
+		rows = append(rows, row)
 	}
 	if len(rows) == 0 {
 		b.WriteString(dimStyle.Render("  everything in sync ✓"))
@@ -281,11 +354,80 @@ func (m Model) missingPane(h, w int) string {
 			b.WriteString(dimStyle.Render("  [a] autofill  [c] copy value  (tab → missing)"))
 		}
 	}
-	return panelStyle.Width(w).Height(h).Render(b.String())
+	return panelStyle.Width(w).Height(h - 2).Render(b.String())
+}
+
+// auditPane cross-references code usage with the diff: keys used in code but
+// missing locally (critical) and keys defined locally but never used.
+func (m Model) auditPane(h, w int) string {
+	innerH := h - 2
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Code Audit"))
+	if m.audit != nil {
+		b.WriteString(fmt.Sprintf("  (%d files, %d refs)", m.audit.Files, m.audit.Refs))
+	} else if m.auditScan {
+		b.WriteString(dimStyle.Render("  (scanning project source files…)"))
+	} else {
+		b.WriteString(dimStyle.Render("  (no data)"))
+	}
+	b.WriteString(dimStyle.Render("  [v close]"))
+	b.WriteString("\n")
+
+	if m.audit == nil {
+		if m.auditScan {
+			b.WriteString(dimStyle.Render("  scanning .js .ts .py .go .rs .php …"))
+			b.WriteString("\n")
+		} else {
+			b.WriteString(dimStyle.Render("  run 'r' to scan"))
+			b.WriteString("\n")
+		}
+		return panelStyle.Width(w).Height(h - 2).Render(b.String())
+	}
+
+	var critical []*audit.Usage
+	for _, st := range m.rep.Missing {
+		if u := m.audit.Usages[st.Key]; u != nil {
+			critical = append(critical, u)
+		}
+	}
+	sort.Slice(critical, func(i, j int) bool { return critical[i].Count > critical[j].Count })
+
+	var unused []string
+	for _, st := range m.rep.All {
+		if st.Present[m.prim] && m.audit.Usages[st.Key] == nil {
+			unused = append(unused, st.Key)
+		}
+	}
+	sort.Strings(unused)
+
+	if len(critical) > 0 {
+		b.WriteString(missStyle.Render("  Missing from " + m.primaryLabel() + " but used in code:"))
+		b.WriteString("\n")
+		for _, u := range critical {
+			b.WriteString(fmt.Sprintf("    %-26s %d ref", u.Key, u.Count))
+			if u.Count != 1 {
+				b.WriteString("s")
+			}
+			b.WriteString("\n")
+		}
+	}
+	if len(unused) > 0 {
+		b.WriteString(dimStyle.Render("  Present in env but unused in code:"))
+		b.WriteString("\n")
+		for _, k := range unused {
+			b.WriteString(dimStyle.Render("    " + k))
+			b.WriteString("\n")
+		}
+	}
+	if len(critical) == 0 && len(unused) == 0 {
+		b.WriteString(matchStyle.Render("  clean: every used var is defined, nothing unused"))
+		b.WriteString("\n")
+	}
+	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(b.String(), innerH))
 }
 
 func (m Model) footer(w int) string {
-	hint := "j/k nav · tab focus · s secrets · x select · a autofill · c copy · r reload · ? help · q quit"
+	hint := "j/k nav · tab focus · s secrets · x select · a autofill · c copy · v audit · r reload · ? help · q quit"
 	if m.toast != "" && time.Since(m.toastAt) < toastDur {
 		hint = dotStyle.Render("• ") + m.toast
 	}
@@ -320,12 +462,14 @@ func (m Model) helpView() string {
 		"  x          toggle include source file",
 		"  a          autofill selected missing key into primary .env",
 		"  c          copy selected key's value to clipboard",
-		"  r          rescan directory",
+		"  v          toggle Code Audit (used-but-missing / unused)",
+		"  r          rescan directory + re-audit source code",
 		"  g / G      jump to top / bottom",
 		"  ?          toggle this help",
 		"  q          quit",
 		"",
 		dimStyle.Render("Values are masked by default; nothing is shown in plaintext unless you press s."),
+		dimStyle.Render("Code Audit scans .js .ts .py .go .rs .php .rb .sh and more for env var usage."),
 		dimStyle.Render("Press q or ? to close."),
 	}
 	box := panelStyle.Width(46).Render(strings.Join(lines, "\n"))

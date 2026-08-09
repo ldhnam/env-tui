@@ -8,7 +8,7 @@ import (
 )
 
 func (m Model) Init() tea.Cmd {
-	return nil
+	return auditCmd(m.dir)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -23,6 +23,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case toastClearMsg:
 		m.toast = ""
+		return m, nil
+	case auditMsg:
+		m.auditScan = false
+		if msg.err != nil {
+			m.toastf("audit scan failed: %v", msg.err)
+			return m, toastCmd()
+		}
+		m.audit = msg.rep
 		return m, nil
 	}
 	return m, nil
@@ -62,10 +70,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.autofill()
 	case "c":
 		return m.copyKey()
+	case "v":
+		m.auditView = !m.auditView
+		return m, nil
 	case "r":
 		m.reload()
-		m.toastf("reloaded %d file(s)", len(m.files))
-		return m, toastCmd()
+		m.audit = nil
+		m.auditScan = true
+		m.toastf("reloaded %d file(s), scanning code…", len(m.files))
+		return m, tea.Batch(auditCmd(m.dir), toastCmd())
 	case "?", "/":
 		m.showHelp = !m.showHelp
 		return m, nil
@@ -96,9 +109,10 @@ func (m *Model) move(d int) {
 			m.keyIdx = clamp(m.keyIdx+d, 0, len(m.rep.All)-1)
 		}
 	case panelMissing:
-		if m.rep != nil {
-			m.missIdx = clamp(m.missIdx+d, 0, len(m.rep.Missing)-1)
+		if m.rep == nil || m.auditView {
+			return
 		}
+		m.missIdx = clamp(m.missIdx+d, 0, len(m.rep.Missing)-1)
 	}
 }
 
@@ -127,6 +141,10 @@ func clamp(v, lo, hi int) int {
 
 // autofill opens the value prompt for the selected missing key.
 func (m Model) autofill() (tea.Model, tea.Cmd) {
+	if m.auditView {
+		m.toastf("switch back to Missing Keys (v) to autofill")
+		return m, toastCmd()
+	}
 	st := m.currentState()
 	if st == nil {
 		return m, nil
@@ -146,6 +164,10 @@ func (m Model) autofill() (tea.Model, tea.Cmd) {
 // copyKey copies the selected key's value (from primary, else first source)
 // to the system clipboard.
 func (m Model) copyKey() (tea.Model, tea.Cmd) {
+	if m.auditView {
+		m.toastf("switch back to Missing Keys (v) to copy")
+		return m, toastCmd()
+	}
 	st := m.currentState()
 	if st == nil {
 		return m, nil

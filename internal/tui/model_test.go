@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"env-tui/internal/audit"
 	"env-tui/internal/diff"
 )
 
@@ -23,6 +24,10 @@ func testModel(t *testing.T) Model {
 	write(".env.local", "NODE_ENV=development\nPORT=3000\nDATABASE_URL=postgres://localhost/db\nSTRIPE_SECRET_KEY=\n")
 	write(".env.example", "NODE_ENV=production\nPORT=3000\nDATABASE_URL=postgres://user:pass@host/db\nSTRIPE_SECRET_KEY=sk_live_x\nREDIS_URL=redis://x\n")
 	write(".env.staging", "NODE_ENV=staging\nDATABASE_URL=postgres://staging/db\nREDIS_URL=redis://staging\n")
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write("src/app.js", "const port = process.env.PORT;\nconst db = process.env.REDIS_URL;\n")
 	m := New(dir)
 	m.width, m.height = 100, 30
 	return m
@@ -194,5 +199,49 @@ func TestSecretsToggleViaUpdate(t *testing.T) {
 	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	if m.showSecrets {
 		t.Error("s should hide secrets again")
+	}
+}
+
+func TestAuditScanAndView(t *testing.T) {
+	m := testModel(t)
+	rep, err := audit.Scan(m.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = update(m, auditMsg{rep: rep})
+	if m.audit == nil {
+		t.Fatal("audit report not stored")
+	}
+	if m.refCount("REDIS_URL") == 0 {
+		t.Error("REDIS_URL should have code references")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	if !m.auditView {
+		t.Fatal("v should toggle audit view")
+	}
+	v := m.View()
+	if !strings.Contains(v, "Code Audit") {
+		t.Error("audit pane missing")
+	}
+	if !strings.Contains(v, "Missing from") || !strings.Contains(v, "REDIS_URL") {
+		t.Error("used-but-missing section missing")
+	}
+	if !strings.Contains(v, "unused in code") {
+		t.Error("unused section missing")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	if m.auditView {
+		t.Error("v should close audit view")
+	}
+}
+
+func TestKeysPaneShowsRefs(t *testing.T) {
+	m := testModel(t)
+	rep, _ := audit.Scan(m.dir)
+	m = update(m, auditMsg{rep: rep})
+	m.focus = panelKeys
+	v := m.View()
+	if !strings.Contains(v, "REDIS_URL") || !strings.Contains(v, "×1") {
+		t.Errorf("keys pane should show ref counts:\n%s", v)
 	}
 }

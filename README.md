@@ -31,6 +31,7 @@ Developers constantly juggle `.env` files across microservices and git branches.
 ## Features
 
 - **Side-by-side diffing** — visually highlights keys that are missing, differing, or in sync across `.env`, `.env.local`, `.env.example`, and remote vault files (`.env.staging`, `.env.production`, …).
+- **Code Audit** — scans project source files (`.js`, `.ts`, `.py`, `.go`, `.rs`, `.php`, `.rb`, `.sh`, …) for env var usage (`process.env.PORT`, `os.Getenv("DATABASE_URL")`, `$VAR`, …) and cross-references it with the diff to flag keys that are **used in code but missing locally** and keys that are **defined but never used**.
 - **Obfuscation mode** — sensitive values are masked as `••••••` until you press `s`.
 - **Interactive sync** — press `a` on a missing key to pull its name into your local `.env` with a placeholder prompt; press `c` to copy a value straight to the clipboard.
 - **Remote-aware** — files like `.env.staging` are tagged `(remote)` and treated as deployed environments. The same source model can be wired to secret managers (Doppler, Infisical, AWS SSM, …).
@@ -69,7 +70,8 @@ env-tui ~/projects/payment-service
 | `x`                 | toggle whether a source file is included |
 | `a`                 | autofill the selected missing key into the primary `.env` |
 | `c`                 | copy the selected key's value to the clipboard |
-| `r`                 | rescan the directory                     |
+| `v`                 | toggle the Code Audit panel                     |
+| `r`                 | rescan the directory + re-audit source code      |
 | `g` / `G`           | jump to top / bottom                     |
 | `?`                 | toggle help                              |
 | `q`                 | quit                                     |
@@ -78,8 +80,31 @@ env-tui ~/projects/payment-service
 
 1. **Target Files** — checkbox list of every discovered `.env*` source. `.env`-local variants are `(local)`; deployment files are tagged `(remote)`.
 2. **Keys** — union of all keys across selected sources with a status glyph: `✓` MATCH, `⚠` DIFF, `✗` MISSING.
-3. **Detail** — the focused key's value in each selected source (masked by default), its aggregate status, and a `Format Valid` hint.
-4. **Missing Keys** — keys absent from the primary local file (`.env.local` preferred, else `.env`), with the sources that do define them. `a` autofills, `c` copies.
+3. **Detail** — the focused key's value in each selected source (masked by default), its aggregate status, a `Format Valid` hint, and how many times it's referenced in code.
+4. **Missing Keys** — keys absent from the primary local file (`.env.local` preferred, else `.env`), with the sources that do define them. `a` autofills, `c` copies; keys referenced in code are flagged `[used ×N]`.
+5. **Code Audit** (`v`) — cross-references source usage with the diff:
+   - **Missing from the primary env but used in code** — the keys most likely to break at runtime.
+   - **Present in env but unused in code** — candidates for cleanup.
+
+## Code Audit coverage
+
+The auditor uses fast, per-language pattern detection (no full AST, so it works across many languages in one pass):
+
+| Pattern | Languages |
+| --- | --- |
+| `process.env.X`, `process.env["X"]`, `import.meta.env.X` | JS, TS, Vue, Svelte |
+| `os.environ["X"]`, `os.environ.get("X")`, `os.getenv("X")` | Python |
+| `os.Getenv("X")`, `os.LookupEnv("X")` | Go |
+| `env::var("X")`, `env!("X")` | Rust |
+| `getenv("X")`, `$_ENV["X"]`, `$_SERVER["X"]` | PHP |
+| `ENV["X"]`, `ENV.fetch("X")` | Ruby |
+| `System.getenv("X")` | Java, Kotlin |
+| `getenv("X")` | C, C++ |
+| `Environment.GetEnvironmentVariable("X")` | C# |
+| `ProcessInfo.processInfo.environment["X"]` | Swift |
+| `$X`, `${X}`, `${X:-default}`, `$env:X` | Shell, Dockerfile, Makefile, YAML |
+
+It also detects JS destructuring (`const { PORT, DB } = process.env;`). It skips hidden dirs, `node_modules`, `vendor`, `dist`, `build`, `target`, etc., and never scans `.env*` files themselves.
 
 ### Which file is "primary"?
 
@@ -100,3 +125,7 @@ A sample project lives in `demo/` for quick exploration:
 ```sh
 go run . demo
 ```
+
+## License
+
+[MIT](LICENSE)
