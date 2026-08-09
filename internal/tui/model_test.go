@@ -203,6 +203,74 @@ func TestSecretsToggleViaUpdate(t *testing.T) {
 	}
 }
 
+func TestSpaceRevealsKey(t *testing.T) {
+	m := testModel(t)
+	m.focus = panelKeys
+	m.keyIdx = 0 // NODE_ENV
+	if strings.Contains(m.View(), "development") {
+		t.Error("value should be masked before space")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeySpace})
+	if !m.revealed["NODE_ENV"] {
+		t.Fatal("space should reveal the focused key")
+	}
+	v := m.View()
+	if !strings.Contains(v, "development") {
+		t.Error("revealed key's value should be visible")
+	}
+	if strings.Contains(v, "postgres://localhost") {
+		t.Error("unrelated key value leaked while only NODE_ENV is revealed")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeySpace})
+	if m.revealed["NODE_ENV"] {
+		t.Error("space should hide the key again")
+	}
+	if strings.Contains(m.View(), "development") {
+		t.Error("value should be masked after second space")
+	}
+}
+
+func TestHoverReveals(t *testing.T) {
+	m := testModel(t)
+	// keys panel geometry at 100x30: filesW=25, keysW=28, rows start y=3,
+	// x range [26, 52). First key row = NODE_ENV, second = PORT.
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionMotion, X: 27, Y: 3})
+	if m.hoverKey != "NODE_ENV" {
+		t.Errorf("hoverKey = %q, want NODE_ENV", m.hoverKey)
+	}
+	if !m.revealKey("NODE_ENV") {
+		t.Error("hovered key should be revealed")
+	}
+	if !strings.Contains(m.View(), "development") {
+		t.Error("hovered key value should be visible")
+	}
+	// hovering the second row selects PORT and reveals it
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionMotion, X: 27, Y: 4})
+	if m.hoverKey != "PORT" || m.keyIdx != 1 {
+		t.Errorf("hover over row 2 = %q idx %d, want PORT/1", m.hoverKey, m.keyIdx)
+	}
+	if !m.revealKey("PORT") {
+		t.Error("PORT should be revealed while hovered")
+	}
+	// moving off any key clears the hover reveal
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionMotion, X: 1, Y: 1})
+	if m.hoverKey != "" {
+		t.Error("hoverKey should clear when the mouse leaves")
+	}
+	if m.revealKey("PORT") {
+		t.Error("PORT should be masked again after hover leaves")
+	}
+	// a release also clears hover
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionMotion, X: 27, Y: 3})
+	if m.hoverKey != "NODE_ENV" {
+		t.Fatal("hover should re-engage")
+	}
+	m = update(m, tea.MouseMsg{Action: tea.MouseActionRelease})
+	if m.hoverKey != "" {
+		t.Error("release should clear hover")
+	}
+}
+
 func TestAuditScanAndView(t *testing.T) {
 	m := testModel(t)
 	rep, err := audit.Scan(m.dir)

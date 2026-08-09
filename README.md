@@ -36,7 +36,7 @@ Developers constantly juggle `.env` files across microservices and git branches.
   - **Used-but-missing** — referenced in code and present elsewhere, but not in your local `.env`.
   - **Zombie keys** — defined in `.env` files but never referenced anywhere in the source code.
 - **Format & Naming Lint** — flags non-`UPPER_SNAKE_CASE` keys, malformed `KEY=VALUE` syntax (missing `=`, unclosed quotes), accidental whitespace (around `=`, in values, leading indentation), duplicate keys, and empty values — with per-line findings grouped by file.
-- **Obfuscation mode** — sensitive values are masked as `••••••` until you press `s`.
+- **Stealth/Masking mode** — sensitive values are masked as `••••••••` by default. Press `s` to reveal everything, `space` to reveal just the focused key, or **hover a key with the mouse** to peek at it (hover also selects the key).
 - **Interactive sync** — press `a` on a missing key to pull its name into your local `.env` with a placeholder prompt; press `c` to copy a value straight to the clipboard.
 - **Remote-aware** — files like `.env.staging` are tagged `(remote)` and treated as deployed environments. The same source model can be wired to secret managers (Doppler, Infisical, AWS SSM, …).
 
@@ -70,7 +70,9 @@ env-tui ~/projects/payment-service
 | ------------------- | ---------------------------------------- |
 | `j` / `k`, `↑` / `↓` | move within the focused panel           |
 | `tab`, `←` / `→`     | cycle focus: files → keys → missing     |
-| `s`                 | toggle secret obfuscation                |
+| `s`                 | toggle secret obfuscation (reveal/hide all)     |
+| `space`             | reveal the focused key's values                 |
+| `mouse`             | hover a key to reveal it (selects on hover)     |
 | `x`                 | toggle whether a source file is included |
 | `a`                 | autofill the selected missing key into the primary `.env` |
 | `c`                 | copy the selected key's value to the clipboard |
@@ -85,7 +87,7 @@ env-tui ~/projects/payment-service
 
 1. **Target Files** — checkbox list of every discovered `.env*` source. `.env`-local variants are `(local)`; deployment files are tagged `(remote)`.
 2. **Keys** — union of all keys across selected sources with a status glyph: `✓` MATCH, `⚠` DIFF, `✗` MISSING.
-3. **Detail** — the focused key's value in each selected source (masked by default), its aggregate status, a `Format Valid` hint, and how many times it's referenced in code.
+3. **Detail** — the focused key's value in each selected source (masked by default; `space` or hover to reveal), its aggregate status, a `Format Valid` hint, and how many times it's referenced in code.
 4. **Missing Keys** — keys absent from the primary local file (`.env.local` preferred, else `.env`), with the sources that do define them. `a` autofills, `c` copies; keys referenced in code are flagged `[used ×N]`.
 5. **Code Audit** (`v`) — cross-references source usage with the environment inventory:
    - **Ghost Keys** — referenced in code but missing from every `.env` file. Also surfaced at the top of the **Keys** panel (marked `✗`) so they're browsable and navigable.

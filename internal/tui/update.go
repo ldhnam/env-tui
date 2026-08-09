@@ -16,6 +16,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 	case tea.KeyMsg:
 		if m.prompting {
 			return m.updatePrompt(msg)
@@ -50,6 +52,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "s":
 		m.showSecrets = !m.showSecrets
+		return m, nil
+	case " ":
+		if key := m.currentKey(); key != "" {
+			if m.revealed[key] {
+				delete(m.revealed, key)
+			} else {
+				m.revealed[key] = true
+			}
+		}
 		return m, nil
 	case "tab", "right", "l":
 		m.focus = nextPanel(m.focus)
@@ -117,6 +128,44 @@ func prevPanel(p panel) panel {
 		return panelMissing
 	}
 	return p - 1
+}
+
+// handleMouse implements hover-to-reveal: moving over a Keys panel row selects
+// and reveals that key; hovering the detail pane reveals the focused key.
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Action {
+	case tea.MouseActionMotion:
+		key, idx := m.hoverTarget(msg.X, msg.Y)
+		m.hoverKey = key
+		if idx >= 0 {
+			m.keyIdx = idx
+		}
+	case tea.MouseActionRelease:
+		m.hoverKey = ""
+	}
+	return m, nil
+}
+
+// hoverTarget maps a terminal cell (0-based) to the key under the cursor and
+// its index in the display keys list (-1 if none).
+func (m Model) hoverTarget(x, y int) (string, int) {
+	w, _, _, colsH := m.layoutDims()
+	fw := m.filesW(w)
+	kw := m.keysW(w)
+	items := m.displayKeys()
+
+	start, end := visibleRange(len(items), m.keyIdx, colsH-3)
+	if y >= 3 && y < 3+(end-start) && x >= fw+1 && x < fw+kw-1 {
+		idx := start + (y - 3)
+		if idx >= 0 && idx < len(items) {
+			return items[idx].key, idx
+		}
+		return "", -1
+	}
+	if x >= fw+kw+1 && y >= 3 && y < colsH {
+		return m.currentKey(), m.keyIdx
+	}
+	return "", -1
 }
 
 func (m *Model) move(d int) {

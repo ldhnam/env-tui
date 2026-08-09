@@ -75,8 +75,12 @@ type Model struct {
 	keyIdx  int
 	missIdx int
 
+	// Stealth/masking: values are masked unless globally shown (showSecrets),
+	// individually revealed (revealed), or hovered (hoverKey).
 	showSecrets bool
 	showHelp    bool
+	revealed    map[string]bool
+	hoverKey    string
 
 	audit     *audit.Report
 	auditView bool
@@ -98,7 +102,7 @@ type Model struct {
 }
 
 func New(dir string) Model {
-	m := Model{dir: dir, auditScan: true, lintScan: true}
+	m := Model{dir: dir, auditScan: true, lintScan: true, revealed: make(map[string]bool)}
 	m.input = textinput.New()
 	m.input.Placeholder = "value"
 	m.input.CharLimit = 4096
@@ -110,6 +114,24 @@ func New(dir string) Model {
 // (i.e. the missing-keys panel is not active).
 func (m Model) bottomView() bool {
 	return m.auditView || m.lintView
+}
+
+// revealKey reports whether key's values should be shown unmasked.
+func (m Model) revealKey(key string) bool {
+	if m.showSecrets {
+		return true
+	}
+	return key != "" && (m.hoverKey == key || m.revealed[key])
+}
+
+// layoutDims returns the effective terminal dimensions and the top-columns
+// height, shared by rendering and mouse hit-testing.
+func (m Model) layoutDims() (w, h, mainH, colsH int) {
+	h = max(m.height, 24)
+	w = max(m.width, 80)
+	mainH = h - 2
+	colsH = max(mainH*3/5, 5)
+	return w, h, mainH, colsH
 }
 
 func (m *Model) reload() {

@@ -34,6 +34,14 @@ var (
 	dotStyle   = lipgloss.NewStyle().Foreground(accent)
 )
 
+// renderPane renders content inside a bordered panel of exactly h rows and w
+// columns. Content is trimmed of trailing newlines and capped at h-2 lines so
+// the final height is always deterministic (lipgloss counts a trailing newline
+// as an extra line).
+func renderPane(w, h int, content string) string {
+	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(strings.TrimRight(content, "\n"), h-2))
+}
+
 func (m Model) View() string {
 	if m.showHelp {
 		return m.helpView()
@@ -45,15 +53,8 @@ func (m Model) View() string {
 		return m.emptyView()
 	}
 
-	h := max(m.height, 24)
-	w := max(m.width, 80)
-
-	mainH := h - 2 // header + footer
-	colsH := mainH * 3 / 5
+	w, _, mainH, colsH := m.layoutDims()
 	missH := mainH - colsH
-	if colsH < 5 {
-		colsH = 5
-	}
 	if missH < 2 {
 		missH = 2
 	}
@@ -93,10 +94,15 @@ func (m Model) detailW(w int) int {
 func (m Model) header(w int) string {
 	title := fmt.Sprintf("env-tui: %s", m.dir)
 	var right string
-	if m.showSecrets {
+	switch {
+	case m.showSecrets:
 		right = dotStyle.Render("● Secrets SHOWN [s]")
-	} else {
-		right = dotStyle.Render("● Secrets hidden [s]")
+	case len(m.revealed) > 0:
+		right = dotStyle.Render(fmt.Sprintf("● Stealth: %d revealed [s]", len(m.revealed)))
+	case m.hoverKey != "":
+		right = dotStyle.Render("● Stealth: hover reveal [s]")
+	default:
+		right = dotStyle.Render("● Stealth masked [s]")
 	}
 	pad := max(w-lipgloss.Width(title)-lipgloss.Width(right), 1)
 	return lipgloss.NewStyle().
@@ -135,15 +141,15 @@ func (m Model) filesPane(h, w int) string {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	return panelStyle.Width(w).Height(h - 2).Render(b.String())
+	return renderPane(w, h, b.String())
 }
 
 // keysPane renders ghost keys and the union of environment keys with status
 // glyphs and code-reference counts.
 func (m Model) keysPane(h, w int) string {
-	innerH := h - 2
 	items := m.displayKeys()
 	inv := m.inventoryKeys()
+	innerH := h - 2
 	lintCounts := m.lintCountByKey()
 	var rows []string
 	for _, it := range items {
@@ -176,7 +182,7 @@ func (m Model) keysPane(h, w int) string {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	return panelStyle.Width(w).Height(h - 2).Render(b.String())
+	return renderPane(w, h, b.String())
 }
 
 func (m Model) refCount(key string) int {
@@ -201,14 +207,13 @@ func statusGlyph(st *diff.KeyState) string {
 	return "?"
 }
 func (m Model) detailPane(h, w int) string {
-	innerH := h - 2
 	var b strings.Builder
 	key := m.currentKey()
 	if key == "" {
 		b.WriteString(titleStyle.Render("Key"))
 		b.WriteString("\n")
 		b.WriteString(dimStyle.Render("(no keys yet)"))
-		return panelStyle.Width(w).Height(h - 2).Render(b.String())
+		return renderPane(w, h, b.String())
 	}
 	items := m.displayKeys()
 	if m.keyIdx >= 0 && m.keyIdx < len(items) && items[m.keyIdx].ghost {
@@ -216,7 +221,7 @@ func (m Model) detailPane(h, w int) string {
 	}
 	st := m.currentState()
 	if st == nil {
-		return panelStyle.Width(w).Height(h - 2).Render("")
+		return renderPane(w, h, "")
 	}
 
 	b.WriteString(titleStyle.Render("Key: " + key))
@@ -238,8 +243,8 @@ func (m Model) detailPane(h, w int) string {
 		default:
 			val := st.Values[f.Path]
 			disp := val
-			if !m.showSecrets {
-				disp = maskVal(val)
+			if !m.revealKey(key) {
+				disp = maskVal()
 			}
 			line = fmt.Sprintf("%-19s: %s", name, dimStyle.Render(truncate(disp, valueW)))
 		}
@@ -272,7 +277,7 @@ func (m Model) detailPane(h, w int) string {
 		b.WriteString(diffStyle.Render(fmt.Sprintf("Lint : %d issue(s) — press f", n)))
 		b.WriteString("\n")
 	}
-	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(b.String(), innerH))
+	return renderPane(w, h, b.String())
 }
 
 // ghostDetailPane renders a key that is referenced in code but absent from
@@ -284,7 +289,7 @@ func (m Model) ghostDetailPane(h, w int, key string) string {
 	b.WriteString(missStyle.Render("  ghost key — not present in any .env file"))
 	b.WriteString("\n\n")
 	m.codeRefLine(key, &b)
-	return panelStyle.Width(w).Height(h - 2).Render(b.String())
+	return renderPane(w, h, b.String())
 }
 
 // codeRefLine renders how the focused key is referenced in the codebase.
@@ -380,14 +385,13 @@ func (m Model) missingPane(h, w int) string {
 			b.WriteString(dimStyle.Render("  [a] autofill  [c] copy value  (tab → missing)"))
 		}
 	}
-	return panelStyle.Width(w).Height(h - 2).Render(b.String())
+	return renderPane(w, h, b.String())
 }
 
 // auditPane cross-references code usage with the environment inventory:
 // ghost keys (used in code, missing from all .env files), keys used in code
 // but missing from the primary file, and zombie keys (defined but unused).
 func (m Model) auditPane(h, w int) string {
-	innerH := h - 2
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Code Audit"))
 	if m.audit != nil {
@@ -409,7 +413,7 @@ func (m Model) auditPane(h, w int) string {
 			b.WriteString(dimStyle.Render("  run 'r' to scan"))
 			b.WriteString("\n")
 		}
-		return panelStyle.Width(w).Height(h - 2).Render(b.String())
+		return renderPane(w, h, b.String())
 	}
 
 	ghosts := m.ghostKeys()
@@ -446,7 +450,7 @@ func (m Model) auditPane(h, w int) string {
 		b.WriteString(matchStyle.Render("  clean: every used var is defined, nothing unused"))
 		b.WriteString("\n")
 	}
-	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(b.String(), innerH))
+	return renderPane(w, h, b.String())
 }
 
 // lintCountByKey maps each key to the number of lint issues across all files.
@@ -465,7 +469,6 @@ func (m Model) lintCountByKey() map[string]int {
 
 // lintPane lists format & naming issues per file.
 func (m Model) lintPane(h, w int) string {
-	innerH := h - 2
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Format & Naming Lint"))
 	if m.lint != nil {
@@ -486,12 +489,12 @@ func (m Model) lintPane(h, w int) string {
 			b.WriteString(dimStyle.Render("  run 'r' to scan"))
 			b.WriteString("\n")
 		}
-		return panelStyle.Width(w).Height(h - 2).Render(b.String())
+		return renderPane(w, h, b.String())
 	}
 	if len(m.lint.Issues) == 0 {
 		b.WriteString(matchStyle.Render("  clean: keys well-formed, no whitespace or syntax issues"))
 		b.WriteString("\n")
-		return panelStyle.Width(w).Height(h - 2).Render(b.String())
+		return renderPane(w, h, b.String())
 	}
 
 	paths := make([]string, 0, len(m.lint.ByPath))
@@ -513,7 +516,7 @@ func (m Model) lintPane(h, w int) string {
 			b.WriteString("\n")
 		}
 	}
-	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(b.String(), innerH))
+	return renderPane(w, h, b.String())
 }
 
 func (m Model) kindStyle(k lint.Kind) string {
@@ -528,11 +531,11 @@ func (m Model) kindStyle(k lint.Kind) string {
 }
 
 func (m Model) footer(w int) string {
-	hint := "j/k nav · tab focus · s secrets · x select · a autofill · c copy · v audit · f lint · r reload · ? help · q quit"
+	hint := "j/k nav · tab focus · s secrets · space reveal · x select · a autofill · c copy · v audit · f lint · r reload · ? help · q quit"
 	if m.toast != "" && time.Since(m.toastAt) < toastDur {
 		hint = dotStyle.Render("• ") + m.toast
 	}
-	return lipgloss.NewStyle().Width(w).Foreground(faint).Render(hint)
+	return lipgloss.NewStyle().Width(w).Foreground(faint).Render(truncate(hint, w))
 }
 
 func (m Model) emptyView() string {
@@ -560,6 +563,8 @@ func (m Model) helpView() string {
 		"  j/k, ↑/↓   move in focused panel",
 		"  tab, ←/→   cycle focus: files → keys → missing",
 		"  s          toggle secret obfuscation",
+		"  space      reveal the focused key's values",
+		"  mouse      hover a key to reveal it (select on hover)",
 		"  x          toggle include source file",
 		"  a          autofill selected missing key into primary .env",
 		"  c          copy selected key's value to clipboard",
@@ -570,7 +575,8 @@ func (m Model) helpView() string {
 		"  ?          toggle this help",
 		"  q          quit",
 		"",
-		dimStyle.Render("Values are masked by default; nothing is shown in plaintext unless you press s."),
+		dimStyle.Render("Values are masked by default; press s to reveal all, space to reveal the"),
+		dimStyle.Render("focused key, or hover a key with the mouse."),
 		dimStyle.Render("Code Audit scans .js .ts .py .go .rs .php .rb .sh and more for env var usage."),
 		dimStyle.Render("Press q or ? to close."),
 	}
@@ -625,11 +631,8 @@ func truncateLines(s string, max int) string {
 	return strings.Join(lines[:max], "\n")
 }
 
-func maskVal(v string) string {
-	if v == "" {
-		return "••••••"
-	}
-	return "••••••"
+func maskVal() string {
+	return "••••••••"
 }
 
 func shortName(path string) string {
