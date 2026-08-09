@@ -48,6 +48,9 @@ func (m Model) View() string {
 	if m.showHelp {
 		return m.helpView()
 	}
+	if m.matrixView {
+		return m.matrixViewOverlay()
+	}
 	if m.searching {
 		return m.searchView()
 	}
@@ -677,6 +680,58 @@ func (m Model) editorView() string {
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
 
+// matrixViewOverlay is a grid of selected profiles (columns) x keys (rows),
+// for spotting missing variables across environments at a glance.
+func (m Model) matrixViewOverlay() string {
+	files := m.selectedFiles()
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Profile Matrix"))
+	b.WriteString(dimStyle.Render("  [M close · j/k rows · h/l cols]"))
+	b.WriteString("\n")
+
+	if len(files) == 0 || m.rep == nil {
+		b.WriteString(dimStyle.Render("  nothing to show — select some source files"))
+		box := panelStyle.Width(50).Render(b.String())
+		return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+	}
+
+	keyW := 20
+	colW := (m.width - keyW - 8) / len(files)
+	if colW < 5 {
+		colW = 5
+	}
+	header := strings.Repeat(" ", keyW) + " "
+	for _, f := range files {
+		header += "| " + truncate(shortName(f.Path), colW) + " "
+	}
+	b.WriteString(dimStyle.Render(header))
+	b.WriteString("\n")
+
+	for i, st := range m.rep.All {
+		key := truncate(st.Key, keyW)
+		row := key + strings.Repeat(" ", keyW-lipgloss.Width(key)) + " "
+		for _, f := range files {
+			cell := dimStyle.Render("—")
+			if v, ok := st.Values[f.Path]; ok {
+				disp := maskVal()
+				if m.revealKey(st.Key) {
+					disp = v
+				}
+				cell = truncate(disp, colW)
+			}
+			row += "| " + cell + " "
+		}
+		if i == m.matrixRow {
+			b.WriteString(curStyle.Render(row))
+		} else {
+			b.WriteString(row)
+		}
+		b.WriteString("\n")
+	}
+	box := panelStyle.Width(min(m.width-2, 120)).Render(b.String())
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
 // searchView is the fuzzy search overlay for filtering keys by name/value.
 func (m Model) searchView() string {
 	items := m.displayKeys()
@@ -829,6 +884,7 @@ func (m Model) helpView() string {
 		"  P / U      pull vault secrets into primary .env / push primary to vault",
 		"  t          generate a sanitized .env.example template",
 		"  S          encrypted snapshots (create / restore / delete)",
+		"  M          profile matrix (all files x all keys)",
 		"  g / G      jump to top / bottom",
 		"  ? / /      toggle help / fuzzy search keys & values",
 		"  q          quit",

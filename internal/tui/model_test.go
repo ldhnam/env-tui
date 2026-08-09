@@ -1096,3 +1096,29 @@ func TestWheelScroll(t *testing.T) {
 		t.Errorf("paneScroll after up = %d, want 1", m.paneScroll)
 	}
 }
+
+func TestMatrixView(t *testing.T) {
+	m := testModel(t)
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("M")})
+	if !m.matrixView {
+		t.Fatal("M should open the matrix view")
+	}
+	plain := stripANSI(m.View())
+	for _, want := range []string{"Profile Matrix", ".env.local", ".env.example"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("matrix view missing %q:\n%s", want, plain)
+		}
+	}
+	if !strings.Contains(plain, "DATABASE_URL") {
+		t.Error("matrix view missing key rows")
+	}
+	// j/k moves the row cursor
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	if m.matrixRow != 1 {
+		t.Errorf("matrixRow = %d, want 1", m.matrixRow)
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("M")})
+	if m.matrixView {
+		t.Error("M should close the matrix view")
+	}
+}

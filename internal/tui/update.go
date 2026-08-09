@@ -81,6 +81,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.searching {
 			return m.updateSearch(msg)
 		}
+		if m.matrixView {
+			return m.updateMatrix(msg)
+		}
 		return m.handleKey(msg)
 	case toastClearMsg:
 		m.toast = ""
@@ -223,6 +226,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "/":
 		return m.openSearch()
+	case "M":
+		return m.openMatrix()
 	}
 	return m, nil
 }
@@ -870,4 +875,29 @@ func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchIdx = 0
 		return m, cmd
 	}
+}
+
+func (m Model) openMatrix() (tea.Model, tea.Cmd) {
+	m.matrixView = true
+	m.matrixRow = clamp(m.keyIdx, 0, len(m.rep.All)-1)
+	m.matrixCol = 0
+	return m, nil
+}
+
+func (m Model) updateMatrix(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	sel := m.selectedFiles()
+	switch msg.String() {
+	case "esc", "M", "q":
+		m.matrixView = false
+		return m, nil
+	case "j", "down":
+		m.matrixRow = clamp(m.matrixRow+1, 0, len(m.rep.All)-1)
+	case "k", "up":
+		m.matrixRow = clamp(m.matrixRow-1, 0, len(m.rep.All)-1)
+	case "h", "left":
+		m.matrixCol = clamp(m.matrixCol-1, 0, len(sel)-1)
+	case "l", "right":
+		m.matrixCol = clamp(m.matrixCol+1, 0, len(sel)-1)
+	}
+	return m, nil
 }

@@ -27,6 +27,7 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 📝 **Template Generator** — press `t` (or run `envigator generate`) to generate/update a sanitized `.env.example` from your primary `.env`, replacing secret-like values with `<YOUR_API_KEY>`-style placeholders while keeping benign defaults — and now preserving the original key comments
 - 🔒 **Encrypted Snapshots** — press `S` to create, restore, or delete locally encrypted snapshots of your `.env` states (AES-256-GCM, passphrase-protected) before risky configuration experiments. Snapshots live in `.envigator/`
 - 🔍 **Fuzzy Search** — press `/` to fuzzy-filter keys by name or value; `enter` jumps straight to the match
+- 🗂️ **Profile Matrix** — press `M` for a grid of all profiles (columns) × keys (rows) to spot missing variables across 5+ files at a glance
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```

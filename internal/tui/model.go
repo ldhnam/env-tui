@@ -145,6 +145,11 @@ type Model struct {
 	// Scroll offset for read-only panels (lint/audit).
 	paneScroll int
 
+	// Cross-profile matrix view.
+	matrixView bool
+	matrixRow  int
+	matrixCol  int
+
 	width  int
 	height int
 }
@@ -267,6 +272,17 @@ func (m *Model) selectedPaths() []string {
 	for i, f := range m.files {
 		if i < len(m.selec) && m.selec[i] {
 			out = append(out, f.Path)
+		}
+	}
+	return out
+}
+
+// selectedFiles returns the selected sources in display order.
+func (m Model) selectedFiles() []*envfile.File {
+	var out []*envfile.File
+	for i, f := range m.files {
+		if i < len(m.selec) && m.selec[i] {
+			out = append(out, f)
 		}
 	}
 	return out
