@@ -140,3 +140,27 @@ func TestQuoteValueRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadForRun(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".env.local", "PORT=3000\nNODE_ENV=dev\n")
+	write(".env.example", "PORT=9000\nNODE_ENV=prod\nEXTRA=x\n")
+	env, err := LoadForRun(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// primary wins
+	if env["PORT"] != "3000" || env["NODE_ENV"] != "dev" {
+		t.Errorf("primary should win: %v", env)
+	}
+	// gaps filled from other files
+	if env["EXTRA"] != "x" {
+		t.Errorf("EXTRA = %q, want x", env["EXTRA"])
+	}
+}

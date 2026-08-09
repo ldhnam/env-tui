@@ -263,3 +263,40 @@ func IsRemote(path string) bool {
 		return true
 	}
 }
+
+// LoadForRun returns the environment loaded from dir's primary .env file,
+// with gaps filled from the other discovered files. It never writes to disk.
+func LoadForRun(dir string) (map[string]string, error) {
+	paths, err := Discover(dir)
+	if err != nil {
+		return nil, err
+	}
+	primary := Primary(paths)
+	envs := make(map[string]*File, len(paths))
+	var files []*File
+	for _, p := range paths {
+		f, perr := Parse(p, IsRemote(p))
+		if perr != nil {
+			f = &File{Path: p, Name: filepath.Base(p), Values: make(map[string]string)}
+		}
+		envs[p] = f
+		files = append(files, f)
+	}
+	env := make(map[string]string)
+	if pf := envs[primary]; pf != nil {
+		for _, k := range pf.Keys {
+			env[k] = pf.Values[k]
+		}
+	}
+	for _, f := range files {
+		if f.Path == primary {
+			continue
+		}
+		for _, k := range f.Keys {
+			if _, ok := env[k]; !ok {
+				env[k] = f.Values[k]
+			}
+		}
+	}
+	return env, nil
+}
