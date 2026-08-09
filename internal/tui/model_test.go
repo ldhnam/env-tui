@@ -1122,3 +1122,48 @@ func TestMatrixView(t *testing.T) {
 		t.Error("M should close the matrix view")
 	}
 }
+
+func TestFindWorkspaces(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		full := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".env", "A=1\n")
+	write("apps/web/.env", "W=1\n")
+	write("services/api/.env", "S=1\n")
+	write("pnpm-workspace.yaml", "packages:\n")
+	write("node_modules/pkg/.env", "N=1\n")
+	write("apps/web/node_modules/x/.env", "X=1\n")
+	ws := findWorkspaces(dir, 3)
+	// node_modules must be skipped; root + apps/web + services/api found
+	if len(ws) != 3 {
+		t.Fatalf("workspaces = %d (%v), want 3", len(ws), ws)
+	}
+	var rootWS *workspace
+	for i := range ws {
+		if ws[i].path == filepath.Join(dir, "..", filepath.Base(dir)) || ws[i].envs > 0 && ws[i].path == dir {
+			rootWS = &ws[i]
+		}
+	}
+	if rootWS == nil {
+		for i := range ws {
+			if strings.HasSuffix(ws[i].path, filepath.Base(dir)) {
+				rootWS = &ws[i]
+			}
+		}
+	}
+	if rootWS == nil {
+		t.Fatalf("root workspace missing: %v", ws)
+	}
+	// pnpm marker should be attached to the root (which contains pnpm-workspace.yaml)
+	if rootWS.marker != "pnpm" {
+		t.Errorf("root marker = %q, want pnpm", rootWS.marker)
+	}
+}

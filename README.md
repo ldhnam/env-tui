@@ -29,6 +29,7 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 🔍 **Fuzzy Search** — press `/` to fuzzy-filter keys by name or value; `enter` jumps straight to the match
 - 🗂️ **Profile Matrix** — press `M` for a grid of all profiles (columns) × keys (rows) to spot missing variables across 5+ files at a glance
 - 🪝 **Git Hook Integration** — `envigator hook install` adds a pre-commit hook that blocks commits with unencrypted credentials and a post-checkout hook that warns when a branch switch introduces ghost keys
+- 🏗️ **Monorepo Autodetect** — press `W` to discover and switch between nested workspace contexts (pnpm, turbo, go.work, lerna, npm) that contain `.env` files
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```

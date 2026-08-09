@@ -150,6 +150,11 @@ type Model struct {
 	matrixRow  int
 	matrixCol  int
 
+	// Monorepo workspace switcher.
+	workspaceView bool
+	workspaces    []workspace
+	wsIdx         int
+
 	width  int
 	height int
 }

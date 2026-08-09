@@ -48,6 +48,9 @@ func (m Model) View() string {
 	if m.showHelp {
 		return m.helpView()
 	}
+	if m.workspaceView {
+		return m.workspaceViewOverlay()
+	}
 	if m.matrixView {
 		return m.matrixViewOverlay()
 	}
@@ -680,6 +683,37 @@ func (m Model) editorView() string {
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
 
+// workspaceViewOverlay lists monorepo/workspace contexts with .env files.
+func (m Model) workspaceViewOverlay() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Workspaces"))
+	b.WriteString(dimStyle.Render("  [W close · j/k navigate · enter switch]"))
+	b.WriteString("\n\n")
+	if len(m.workspaces) == 0 {
+		b.WriteString(dimStyle.Render("  no nested .env workspaces found"))
+	} else {
+		for i, ws := range m.workspaces {
+			label := ws.path
+			if ws.marker != "" {
+				label += "  [" + ws.marker + "]"
+			}
+			label += fmt.Sprintf("  (%d .env)", ws.envs)
+			line := "  " + label
+			if i == m.wsIdx {
+				line = curStyle.Render(line)
+			} else {
+				line = dimStyle.Render(line)
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  enter switch context · esc close"))
+	box := panelStyle.Width(min(m.width-4, 76)).Render(b.String())
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
 // matrixViewOverlay is a grid of selected profiles (columns) x keys (rows),
 // for spotting missing variables across environments at a glance.
 func (m Model) matrixViewOverlay() string {
@@ -885,6 +919,7 @@ func (m Model) helpView() string {
 		"  t          generate a sanitized .env.example template",
 		"  S          encrypted snapshots (create / restore / delete)",
 		"  M          profile matrix (all files x all keys)",
+		"  W          monorepo workspace switcher",
 		"  g / G      jump to top / bottom",
 		"  ? / /      toggle help / fuzzy search keys & values",
 		"  q          quit",

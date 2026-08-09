@@ -84,6 +84,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.matrixView {
 			return m.updateMatrix(msg)
 		}
+		if m.workspaceView {
+			return m.updateWorkspaces(msg)
+		}
 		return m.handleKey(msg)
 	case toastClearMsg:
 		m.toast = ""
@@ -228,6 +231,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openSearch()
 	case "M":
 		return m.openMatrix()
+	case "W":
+		return m.openWorkspaces()
 	}
 	return m, nil
 }
@@ -900,4 +905,53 @@ func (m Model) updateMatrix(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.matrixCol = clamp(m.matrixCol+1, 0, len(sel)-1)
 	}
 	return m, nil
+}
+
+func (m Model) openWorkspaces() (tea.Model, tea.Cmd) {
+	m.workspaces = findWorkspaces(m.dir, 3)
+	m.wsIdx = 0
+	m.workspaceView = true
+	return m, nil
+}
+
+func (m Model) updateWorkspaces(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "W", "q":
+		m.workspaceView = false
+		return m, nil
+	case "j", "down":
+		m.wsIdx = clamp(m.wsIdx+1, 0, len(m.workspaces)-1)
+		return m, nil
+	case "k", "up":
+		m.wsIdx = clamp(m.wsIdx-1, 0, len(m.workspaces)-1)
+		return m, nil
+	case "enter":
+		if m.wsIdx >= 0 && m.wsIdx < len(m.workspaces) {
+			return m.switchWorkspace(m.workspaces[m.wsIdx].path)
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+// switchWorkspace points the model at a different directory and rescans.
+func (m Model) switchWorkspace(path string) (tea.Model, tea.Cmd) {
+	m.dir = path
+	m.workspaceView = false
+	m.reload()
+	m.audit = nil
+	m.auditScan = true
+	m.lint = nil
+	m.lintScan = true
+	if m.vaultProvider != "" {
+		m.vaultSecrets = nil
+		m.vaultErr = ""
+		m.vaultScan = true
+	}
+	cmds := []tea.Cmd{auditCmd(m.dir), lintCmd(m.dir), toastCmd()}
+	if m.vaultProvider != "" {
+		cmds = append(cmds, vaultFetchCmd(m))
+	}
+	m.toastf("workspace: %s", path)
+	return m, tea.Batch(cmds...)
 }
