@@ -1,18 +1,51 @@
 package tui
 
 import (
+	"sort"
+	"strings"
+
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
-	"strings"
 
 	"github.com/ldhnam/envigator/internal/diff"
 	"github.com/ldhnam/envigator/internal/envfile"
 	"github.com/ldhnam/envigator/internal/secrets"
+	"github.com/ldhnam/envigator/internal/vault"
 )
 
+// vaultMsg is delivered when a vault fetch completes.
+type vaultMsg struct {
+	secrets map[string]string
+	err     error
+}
+
+// vaultPushMsg is delivered when a vault push completes.
+type vaultPushMsg struct {
+	err error
+}
+
+func vaultFetchCmd(m Model) tea.Cmd {
+	return func() tea.Msg {
+		secrets, err := vault.Fetch(vault.Provider(m.vaultProvider), m.vaultProject, m.vaultEnv)
+		return vaultMsg{secrets: secrets, err: err}
+	}
+}
+
+func vaultPushCmd(m Model, secrets map[string]string) tea.Cmd {
+	return func() tea.Msg {
+		err := vault.Push(vault.Provider(m.vaultProvider), m.vaultProject, m.vaultEnv, secrets)
+		return vaultPushMsg{err: err}
+	}
+}
+
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(auditCmd(m.dir), lintCmd(m.dir))
+	var cmds []tea.Cmd
+	cmds = append(cmds, auditCmd(m.dir), lintCmd(m.dir))
+	if m.vaultProvider != "" {
+		cmds = append(cmds, vaultFetchCmd(m))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -31,6 +64,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.editing {
 			return m.updateEditor(msg)
+		}
+		if m.pushConfirm {
+			return m.updatePushConfirm(msg)
 		}
 		return m.handleKey(msg)
 	case toastClearMsg:
@@ -57,6 +93,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toastf("nested shell exited with error: %v", msg.err)
 		} else {
 			m.toastf("nested shell exited")
+		}
+		return m, toastCmd()
+	case vaultMsg:
+		m.vaultScan = false
+		if msg.err != nil {
+			m.vaultErr = msg.err.Error()
+			m.toastf("vault sync failed: %v", msg.err)
+			return m, toastCmd()
+		}
+		m.vaultErr = ""
+		m.vaultSecrets = msg.secrets
+		m.reload()
+		m.toastf("loaded %d secrets from %s", len(msg.secrets), m.vaultProvider)
+		return m, toastCmd()
+	case vaultPushMsg:
+		if msg.err != nil {
+			m.toastf("push to %s failed: %v", m.vaultProvider, msg.err)
+		} else {
+			m.toastf("pushed %d secrets to %s", len(m.vaultSecrets), m.vaultProvider)
 		}
 		return m, toastCmd()
 	}
@@ -140,6 +195,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "R":
 		m.toastf("spawning nested %s with %d env vars", m.shell, len(m.loadedEnv()))
 		return m, tea.Batch(m.spawnShell(), toastCmd())
+	case "P":
+		return m.vaultPull()
+	case "U":
+		return m.vaultPushPrompt()
 	case "?", "/":
 		m.showHelp = !m.showHelp
 		return m, nil
@@ -504,4 +563,84 @@ func (m Model) fileFor(path string) *envfile.File {
 		}
 	}
 	return nil
+}
+
+// vaultPull copies vault secrets missing from the primary file into it.
+func (m Model) vaultPull() (tea.Model, tea.Cmd) {
+	if m.vaultProvider == "" {
+		m.toastf("no vault configured (see -vault flag)")
+		return m, toastCmd()
+	}
+	if len(m.vaultSecrets) == 0 {
+		if m.vaultScan {
+			m.toastf("vault %s still fetching…", m.vaultProvider)
+		} else if m.vaultErr != "" {
+			m.toastf("vault unavailable: %s", m.vaultErr)
+		} else {
+			m.toastf("vault %s has no secrets", m.vaultProvider)
+		}
+		return m, toastCmd()
+	}
+	primary := make(map[string]bool)
+	if f := m.fileFor(m.prim); f != nil {
+		for k := range f.Values {
+			primary[k] = true
+		}
+	}
+	added := 0
+	for _, k := range sortedStringKeys(m.vaultSecrets) {
+		if primary[k] {
+			continue
+		}
+		if err := m.appendPrimary(k, m.vaultSecrets[k]); err == nil {
+			added++
+		}
+	}
+	if added > 0 {
+		m.reload()
+	}
+	m.toastf("pulled %d secret(s) from %s into %s", added, m.vaultProvider, m.primaryLabel())
+	return m, toastCmd()
+}
+
+// vaultPushPrompt opens a confirmation gate before pushing to the provider.
+func (m Model) vaultPushPrompt() (tea.Model, tea.Cmd) {
+	if m.vaultProvider == "" {
+		m.toastf("no vault configured (see -vault flag)")
+		return m, toastCmd()
+	}
+	if f := m.fileFor(m.prim); f == nil || len(f.Values) == 0 {
+		m.toastf("nothing to push")
+		return m, toastCmd()
+	}
+	m.pushConfirm = true
+	return m, nil
+}
+
+func (m Model) updatePushConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y", "enter":
+		m.pushConfirm = false
+		secrets := make(map[string]string)
+		if f := m.fileFor(m.prim); f != nil {
+			for k := range f.Values {
+				secrets[k] = f.Values[k]
+			}
+		}
+		return m, vaultPushCmd(m, secrets)
+	case "n", "N", "esc":
+		m.pushConfirm = false
+		m.toastf("push to %s cancelled", m.vaultProvider)
+		return m, toastCmd()
+	}
+	return m, nil
+}
+
+func sortedStringKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

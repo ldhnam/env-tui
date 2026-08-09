@@ -23,6 +23,7 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - ✏️ **In-Place Editor** — press `e` to edit the focused key's value in a multi-line editor (ideal for RSA private keys, JSON payloads); `ctrl+s` saves in place, `esc` cancels, and multi-line values are stored as quoted `\n`-escaped strings that round-trip cleanly
 - 📋 **One-Click Clipboard Exports** — copy `export KEY="VALUE"` lines or full blocks formatted for **Bash / Zsh / Fish** (`T` cycles the target shell), plus copy key names or values individually: `c` value, `C` name, `E` export line, `B` export block
 - 🐚 **Nested Shell** — press `R` to spawn a temporary interactive shell loaded with the `.env` variables, without touching the global/system environment (the vars exist only inside the child process; exit returns to the TUI)
+- 🔐 **Remote Vault Sync** — read-only or pull/push integration with secret managers via their CLIs: **Doppler, HashiCorp Vault, 1Password (`op`), AWS Secrets Manager, Infisical**. The vault appears as a selectable remote source in the diff; `P` pulls missing secrets into your local `.env`, `U` pushes (with confirmation)
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```
@@ -88,6 +89,28 @@ Point it at a project directory containing `.env*` files:
 envigator ~/projects/payment-service
 ```
 
+### Remote vault sync
+
+Load secrets from a secret manager and treat them as another (remote) diff source:
+
+```sh
+envigator -vault doppler -vault-project myproj -vault-env prod .
+envigator -vault vault -vault-project secret/myapp .
+envigator -vault op -vault-project myitem -vault-env MyVault .
+envigator -vault aws -vault-project us-east-1 .
+envigator -vault infisical -vault-env prod .
+```
+
+| Provider | `-vault-project` | `-vault-env` |
+| --- | --- | --- |
+| `doppler` | project | config (environment) |
+| `vault` | KV path (e.g. `secret/myapp`) | — |
+| `op` | item name | vault |
+| `aws` | region | — |
+| `infisical` | — | environment |
+
+The vault appears in **Target Files** as `<provider> (vault)` and the header shows a `vault:` status badge. Press `P` to pull vault secrets that are missing from your local `.env` into it, or `U` to push the primary `.env` to the provider (gated by a confirmation). Providers are driven through their installed CLIs (`doppler`, `vault`, `op`, `aws`, `infisical`), so auth is whatever the CLI is configured with.
+
 ### Keybindings
 
 | Key                 | Action                                   |
@@ -107,6 +130,7 @@ envigator ~/projects/payment-service
 | `v`                 | toggle the Code Audit panel                     |
 | `f`                 | toggle the Format & Naming Lint panel           |
 | `r` / `R`           | rescan directory / spawn a nested shell with the loaded env |
+| `P` / `U`           | pull vault secrets into primary `.env` / push primary to vault |
 | `g` / `G`           | jump to top / bottom                     |
 | `?`                 | toggle help                              |
 | `q`                 | quit                                     |

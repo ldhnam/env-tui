@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -797,5 +798,83 @@ func TestChildEnv(t *testing.T) {
 	// the global environment must not be mutated
 	if got := os.Getenv("PORT"); got != "9999" {
 		t.Errorf("global PORT = %q, want 9999 (must stay unchanged)", got)
+	}
+}
+
+func TestVaultVirtualSource(t *testing.T) {
+	m := testModel(t)
+	m.vaultProvider = "doppler"
+	m.vaultSecrets = map[string]string{"VAULT_KEY": "v1", "PORT": "9000"}
+	m = update(m, vaultMsg{secrets: m.vaultSecrets})
+	found := false
+	for _, f := range m.files {
+		if f.Virtual && f.Name == "doppler (vault)" {
+			found = true
+			if f.Values["VAULT_KEY"] != "v1" {
+				t.Errorf("vault file VAULT_KEY = %q", f.Values["VAULT_KEY"])
+			}
+		}
+	}
+	if !found {
+		t.Fatal("vault virtual source not added to files")
+	}
+	if m.rep.ByKey["VAULT_KEY"] == nil {
+		t.Error("VAULT_KEY missing from diff report")
+	}
+	if !strings.Contains(m.View(), "vault: doppler") {
+		t.Error("header missing vault badge")
+	}
+}
+
+func TestVaultPull(t *testing.T) {
+	m := testModel(t)
+	m.vaultProvider = "doppler"
+	m.vaultSecrets = map[string]string{
+		"REDIS_URL": "redis://vault:6379",
+		"NODE_ENV":  "staging",
+		"NEW_KEY":   "fresh",
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	data, _ := os.ReadFile(m.prim)
+	for _, want := range []string{"REDIS_URL=redis://vault:6379", "NEW_KEY=fresh"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("pull should add %s:\n%s", want, data)
+		}
+	}
+	if !strings.Contains(string(data), "NODE_ENV=development") {
+		t.Errorf("pull must not overwrite existing NODE_ENV:\n%s", data)
+	}
+}
+
+func TestVaultPushConfirm(t *testing.T) {
+	m := testModel(t)
+	m.vaultProvider = "doppler"
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("U")})
+	if !m.pushConfirm {
+		t.Fatal("U should open the push confirmation")
+	}
+	if !strings.Contains(m.View(), "Remote Vault Sync") {
+		t.Error("push confirm view missing")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if m.pushConfirm {
+		t.Error("n should close the push confirmation")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("U")})
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if m.pushConfirm {
+		t.Error("y should close the push confirmation")
+	}
+}
+
+func TestVaultErrorBadge(t *testing.T) {
+	m := testModel(t)
+	m.vaultProvider = "doppler"
+	m = update(m, vaultMsg{err: errors.New("boom")})
+	if m.vaultErr != "boom" {
+		t.Errorf("vaultErr = %q", m.vaultErr)
+	}
+	if !strings.Contains(m.View(), "vault: error") {
+		t.Error("header missing vault error badge")
 	}
 }

@@ -14,14 +14,16 @@ func keyNameValid(key string) bool {
 	return keyRe.MatchString(key)
 }
 
-// File is a parsed environment source. It may represent a local .env file
-// or a remote secret store (marked with Remote).
+// File is a parsed environment source. It may represent a local .env file,
+// a remote secret store (marked with Remote), or an in-memory source like a
+// secret-manager vault (marked with Virtual).
 type File struct {
-	Path   string
-	Name   string
-	Remote bool
-	Keys   []string // insertion order
-	Values map[string]string
+	Path    string
+	Name    string
+	Remote  bool
+	Virtual bool     // in-memory source (e.g. secret manager), not on disk
+	Keys    []string // insertion order
+	Values  map[string]string
 }
 
 func (f *File) Add(key, value string) {
@@ -37,6 +39,9 @@ func (f *File) Has(key string) bool {
 }
 
 func (f *File) Label() string {
+	if f.Virtual {
+		return f.Name
+	}
 	if f.Remote {
 		return f.Name + " (remote)"
 	}

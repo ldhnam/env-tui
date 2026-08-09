@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -119,12 +120,44 @@ type Model struct {
 	// Clipboard export target shell: bash, zsh, or fish.
 	shell string
 
+	// Remote vault sync (secret manager integration).
+	vaultProvider string
+	vaultProject  string
+	vaultEnv      string
+	vaultSecrets  map[string]string
+	vaultScan     bool
+	vaultErr      string
+	pushConfirm   bool
+
 	width  int
 	height int
 }
 
-func New(dir string) Model {
-	m := Model{dir: dir, auditScan: true, lintScan: true, revealed: make(map[string]bool), shell: detectShell()}
+// Options configures optional behavior passed to New.
+type Options struct {
+	VaultProvider string
+	VaultProject  string
+	VaultEnv      string
+}
+
+func New(dir string, opts ...Options) Model {
+	var o Options
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	m := Model{
+		dir:           dir,
+		auditScan:     true,
+		lintScan:      true,
+		revealed:      make(map[string]bool),
+		shell:         detectShell(),
+		vaultProvider: o.VaultProvider,
+		vaultProject:  o.VaultProject,
+		vaultEnv:      o.VaultEnv,
+	}
+	if m.vaultProvider != "" {
+		m.vaultScan = true
+	}
 	m.input = textinput.New()
 	m.input.Placeholder = "value"
 	m.input.CharLimit = 4096
@@ -172,6 +205,10 @@ func (m *Model) reload() {
 		m.files = append(m.files, f)
 		envs[p] = f
 	}
+	if vf := m.vaultFile(); vf != nil {
+		m.files = append(m.files, vf)
+		envs[vf.Path] = vf
+	}
 	if len(m.selec) != len(m.files) {
 		m.selec = make([]bool, len(m.files))
 		for i := range m.selec {
@@ -183,6 +220,30 @@ func (m *Model) reload() {
 	m.rep = diff.Build(m.prim, selected, envs)
 	m.git = gitguard.Check(m.dir, paths)
 	m.clampCursors()
+}
+
+// vaultFile returns the in-memory remote source for a loaded secret-manager
+// vault, or nil when none is loaded.
+func (m Model) vaultFile() *envfile.File {
+	if len(m.vaultSecrets) == 0 {
+		return nil
+	}
+	f := &envfile.File{
+		Path:    "vault:" + m.vaultProvider,
+		Name:    m.vaultProvider + " (vault)",
+		Remote:  true,
+		Virtual: true,
+		Values:  make(map[string]string, len(m.vaultSecrets)),
+	}
+	keys := make([]string, 0, len(m.vaultSecrets))
+	for k := range m.vaultSecrets {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		f.Add(k, m.vaultSecrets[k])
+	}
+	return f
 }
 
 func (m *Model) selectedPaths() []string {

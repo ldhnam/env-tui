@@ -48,6 +48,9 @@ func (m Model) View() string {
 	if m.showHelp {
 		return m.helpView()
 	}
+	if m.pushConfirm {
+		return m.pushConfirmView()
+	}
 	if m.editing {
 		return m.editorView()
 	}
@@ -113,6 +116,7 @@ func (m Model) header(w int) string {
 		right = dotStyle.Render("● Stealth masked [s]")
 	}
 	right += "  " + m.gitBadge()
+	right += "  " + m.vaultBadge()
 	pad := max(w-lipgloss.Width(title)-lipgloss.Width(right), 1)
 	return lipgloss.NewStyle().
 		Bold(true).
@@ -138,6 +142,23 @@ func (m Model) gitBadge() string {
 		return missStyle.Render(fmt.Sprintf("git: %d exposed", risks))
 	}
 	return matchStyle.Render("git: protected")
+}
+
+// vaultBadge reports the remote vault sync status in the header.
+func (m Model) vaultBadge() string {
+	if m.vaultProvider == "" {
+		return ""
+	}
+	switch {
+	case len(m.vaultSecrets) > 0:
+		return matchStyle.Render(fmt.Sprintf("vault: %s · %d", m.vaultProvider, len(m.vaultSecrets)))
+	case m.vaultErr != "":
+		return missStyle.Render("vault: error")
+	case m.vaultScan:
+		return dimStyle.Render("vault: fetching…")
+	default:
+		return dimStyle.Render("vault: " + m.vaultProvider)
+	}
 }
 
 // isTemplateFile reports whether a path is a committed template
@@ -176,12 +197,14 @@ func (m Model) filesPane(h, w int) string {
 			mark = "x"
 		}
 		name := f.Label()
-		if m.lint != nil {
+		if !f.Virtual && m.lint != nil {
 			if n := len(m.lint.ByPath[f.Path]); n > 0 {
 				name += " " + diffStyle.Render("⚠"+strconv.Itoa(n))
 			}
 		}
-		name += m.gitFileMarker(f.Path)
+		if !f.Virtual {
+			name += m.gitFileMarker(f.Path)
+		}
 		rows = append(rows, fmt.Sprintf("[%s] %s", mark, name))
 	}
 	var b strings.Builder
@@ -606,7 +629,7 @@ func (m Model) kindStyle(k lint.Kind) string {
 }
 
 func (m Model) footer(w int) string {
-	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · x select · c value · C name · E export · B block · T shell · R nested shell · v audit · f lint · r reload · ? help · q quit"
+	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · x select · c value · C name · E export · B block · T shell · R shell · P pull · U push · v audit · f lint · ? help · q quit"
 	if m.toast != "" && time.Since(m.toastAt) < toastDur {
 		hint = dotStyle.Render("• ") + m.toast
 	}
@@ -642,6 +665,26 @@ func (m Model) editorView() string {
 		dimStyle.Render("ctrl+s save · esc cancel"),
 	}
 	box := panelStyle.Width(min(m.width-4, 84)).Render(strings.Join(lines, "\n"))
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
+// pushConfirmView is the confirmation gate before pushing to a vault.
+func (m Model) pushConfirmView() string {
+	n := 0
+	if f := m.fileFor(m.prim); f != nil {
+		n = len(f.Values)
+	}
+	lines := []string{
+		titleStyle.Render("Remote Vault Sync"),
+		"",
+		fmt.Sprintf("Push %s %d secret(s) to %s?",
+			missStyle.Render(m.primaryLabel()), n, missStyle.Render(m.vaultProvider)),
+		"",
+		missStyle.Render("This writes to the remote secret manager and cannot be undone."),
+		"",
+		dimStyle.Render("[y] push    [n] cancel"),
+	}
+	box := panelStyle.Width(60).Render(strings.Join(lines, "\n"))
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
 
@@ -696,6 +739,7 @@ func (m Model) helpView() string {
 		"  v          toggle Code Audit (ghost / zombie / used-but-missing)",
 		"  f          toggle Format & Naming Lint + leak detector",
 		"  r / R      reload & rescan / spawn a nested shell with the loaded env",
+		"  P / U      pull vault secrets into primary .env / push primary to vault",
 		"  g / G      jump to top / bottom",
 		"  ?          toggle this help",
 		"  q          quit",
