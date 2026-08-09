@@ -9,8 +9,10 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/term"
 
 	"github.com/ldhnam/envigator/internal/envfile"
+	"github.com/ldhnam/envigator/internal/snapshot"
 	"github.com/ldhnam/envigator/internal/tui"
 )
 
@@ -22,6 +24,9 @@ func main() {
 			return
 		case "generate":
 			cliGenerate(os.Args[2:])
+			return
+		case "snapshot":
+			cliSnapshot(os.Args[2:])
 			return
 		case "help", "-h", "--help":
 			printUsage()
@@ -38,6 +43,10 @@ Usage:
   envigator [flags] [directory]      launch the TUI (directory defaults to ".")
   envigator run [--dir DIR] -- cmd   run a command with the loaded .env in-memory
   envigator generate [dir]           write a sanitized .env.example from the primary .env
+  envigator snapshot <create|list|restore|delete> [flags]
+      --dir DIR          target directory (default ".")
+      --passphrase S     encryption passphrase (or set ENVIGATOR_PASSPHRASE)
+      --name NAME        snapshot to restore/delete
 
 Flags:
   -vault string        secret manager provider (doppler, vault, op, aws, infisical)
@@ -67,6 +76,102 @@ func runTUI() {
 		fmt.Fprintln(os.Stderr, "envigator:", err)
 		os.Exit(1)
 	}
+}
+
+// cliSnapshot manages encrypted .env snapshots from the command line.
+func cliSnapshot(args []string) {
+	sub := "list"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		sub = args[0]
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("snapshot "+sub, flag.ExitOnError)
+	dir := fs.String("dir", ".", "directory containing .env files")
+	pass := fs.String("passphrase", "", "passphrase (or set ENVIGATOR_PASSPHRASE)")
+	name := fs.String("name", "", "snapshot name (restore/delete)")
+	_ = fs.Parse(args)
+
+	if *pass == "" {
+		*pass = os.Getenv("ENVIGATOR_PASSPHRASE")
+	}
+	if sub == "create" || sub == "restore" {
+		if *pass == "" {
+			p, err := promptPassphrase()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "envigator snapshot:", err)
+				os.Exit(1)
+			}
+			*pass = p
+		}
+	}
+
+	switch sub {
+	case "create":
+		paths, err := envfile.Discover(*dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "envigator snapshot: %v\n", err)
+			os.Exit(1)
+		}
+		files := make(map[string]string)
+		for _, p := range paths {
+			if data, err := os.ReadFile(p); err == nil {
+				files[filepath.Base(p)] = string(data)
+			}
+		}
+		n, err := snapshot.Create(*dir, *pass, files)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "envigator snapshot: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("created %s (%d files)\n", n, len(files))
+	case "list":
+		list, err := snapshot.List(*dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "envigator snapshot: %v\n", err)
+			os.Exit(1)
+		}
+		for _, n := range list {
+			fmt.Println(n)
+		}
+	case "restore":
+		if *name == "" {
+			fmt.Fprintln(os.Stderr, "envigator snapshot: --name required to restore")
+			os.Exit(1)
+		}
+		files, err := snapshot.Read(*dir, *name, *pass)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "envigator snapshot: %v\n", err)
+			os.Exit(1)
+		}
+		n := 0
+		for fname, content := range files {
+			if err := os.WriteFile(filepath.Join(*dir, fname), []byte(content), 0o644); err == nil {
+				n++
+			}
+		}
+		fmt.Printf("restored %d file(s) from %s\n", n, *name)
+	case "delete":
+		if *name == "" {
+			fmt.Fprintln(os.Stderr, "envigator snapshot: --name required to delete")
+			os.Exit(1)
+		}
+		if err := snapshot.Delete(*dir, *name); err != nil {
+			fmt.Fprintf(os.Stderr, "envigator snapshot: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("deleted %s\n", *name)
+	default:
+		fmt.Fprintln(os.Stderr, "envigator snapshot: unknown subcommand (create|list|restore|delete)")
+		os.Exit(1)
+	}
+}
+
+// promptPassphrase reads a passphrase from the terminal without echo.
+func promptPassphrase() (string, error) {
+	fmt.Fprint(os.Stderr, "passphrase: ")
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	return string(b), err
 }
 
 // cliGenerate writes a sanitized .env.example for the target directory.
