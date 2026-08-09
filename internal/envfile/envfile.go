@@ -55,13 +55,17 @@ func Parse(path string, remote bool) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ParseContent(string(data), path, remote)
+}
+
+// ParseContent parses dotenv content without touching the filesystem.
+func ParseContent(content, path string, remote bool) (*File, error) {
 	f := &File{
 		Path:   path,
 		Name:   filepath.Base(path),
 		Remote: remote,
 		Values: make(map[string]string),
 	}
-	content := string(data)
 	for _, line := range logicalLines(content) {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {

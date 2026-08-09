@@ -28,6 +28,9 @@ func main() {
 		case "snapshot":
 			cliSnapshot(os.Args[2:])
 			return
+		case "hook":
+			cliHook(os.Args[2:])
+			return
 		case "help", "-h", "--help":
 			printUsage()
 			return
@@ -47,6 +50,8 @@ Usage:
       --dir DIR          target directory (default ".")
       --passphrase S     encryption passphrase (or set ENVIGATOR_PASSPHRASE)
       --name NAME        snapshot to restore/delete
+  envigator hook install [--pre-commit] [--post-checkout]
+  envigator hook check --staged | --ghosts
 
 Flags:
   -vault string        secret manager provider (doppler, vault, op, aws, infisical)

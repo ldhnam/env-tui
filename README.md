@@ -28,6 +28,7 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 🔒 **Encrypted Snapshots** — press `S` to create, restore, or delete locally encrypted snapshots of your `.env` states (AES-256-GCM, passphrase-protected) before risky configuration experiments. Snapshots live in `.envigator/`
 - 🔍 **Fuzzy Search** — press `/` to fuzzy-filter keys by name or value; `enter` jumps straight to the match
 - 🗂️ **Profile Matrix** — press `M` for a grid of all profiles (columns) × keys (rows) to spot missing variables across 5+ files at a glance
+- 🪝 **Git Hook Integration** — `envigator hook install` adds a pre-commit hook that blocks commits with unencrypted credentials and a post-checkout hook that warns when a branch switch introduces ghost keys
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```
