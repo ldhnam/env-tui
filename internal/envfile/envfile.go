@@ -87,10 +87,10 @@ func logicalLines(content string) []string {
 			continue
 		}
 		eq := strings.Index(trimmed, "=")
-		if eq > 0 && unclosedQuote(trimmed[eq+1:]) {
+		if eq > 0 && HasUnclosedQuote(trimmed[eq+1:]) {
 			val := trimmed[eq+1:]
 			j := i + 1
-			for j < len(lines) && unclosedQuote(val) {
+			for j < len(lines) && HasUnclosedQuote(val) {
 				val += "\n" + lines[j]
 				j++
 			}
@@ -105,7 +105,7 @@ func logicalLines(content string) []string {
 
 // unclosedQuote reports whether s starts a quoted value that is not closed
 // on this line (accounting for backslash escapes).
-func unclosedQuote(s string) bool {
+func HasUnclosedQuote(s string) bool {
 	s = strings.TrimSpace(s)
 	if len(s) == 0 || (s[0] != '"' && s[0] != '\'') {
 		return false
@@ -137,10 +137,10 @@ func splitLine(line string) (string, string, bool) {
 		return "", "", false
 	}
 	raw := strings.TrimSpace(line[idx+1:])
-	return key, unquote(raw), true
+	return key, Unquote(raw), true
 }
 
-func unquote(s string) string {
+func Unquote(s string) string {
 	if len(s) >= 2 {
 		open, close := s[0], s[len(s)-1]
 		if open == '"' && close == '"' {

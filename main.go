@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +19,9 @@ func main() {
 		switch os.Args[1] {
 		case "run":
 			cliRun(os.Args[2:])
+			return
+		case "generate":
+			cliGenerate(os.Args[2:])
 			return
 		case "help", "-h", "--help":
 			printUsage()
@@ -63,6 +67,29 @@ func runTUI() {
 		fmt.Fprintln(os.Stderr, "envigator:", err)
 		os.Exit(1)
 	}
+}
+
+// cliGenerate writes a sanitized .env.example for the target directory.
+func cliGenerate(args []string) {
+	dir := "."
+	if len(args) > 0 {
+		dir = args[0]
+	}
+	content, err := envfile.BuildExampleTemplate(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "envigator generate: %v\n", err)
+		os.Exit(1)
+	}
+	if content == "" {
+		fmt.Fprintln(os.Stderr, "envigator generate: no .env files found")
+		os.Exit(1)
+	}
+	path := filepath.Join(dir, ".env.example")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "envigator generate: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("generated %s\n", path)
 }
 
 // cliRun runs a command with the loaded environment profile applied to the
