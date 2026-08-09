@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ldhnam/env-tui/internal/secrets"
+	"github.com/ldhnam/envigator/internal/secrets"
 )
 
 type secretHit struct {

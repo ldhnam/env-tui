@@ -3,6 +3,7 @@ package envfile
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -68,6 +69,74 @@ func TestIsRemote(t *testing.T) {
 	} {
 		if got := IsRemote(name); got != want {
 			t.Errorf("IsRemote(%s) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestParseMultiLineValue(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, ".env")
+	content := "PORT=3000\nPRIVATE_KEY=\"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY-----\"\nJSON='{\"a\":1,\"b\":2}'\n"
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Parse(p, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY-----"
+	if got := f.Values["PRIVATE_KEY"]; got != want {
+		t.Errorf("PRIVATE_KEY = %q, want %q", got, want)
+	}
+	if got := f.Values["JSON"]; got != `{"a":1,"b":2}` {
+		t.Errorf("JSON = %q", got)
+	}
+	if got := f.Values["PORT"]; got != "3000" {
+		t.Errorf("PORT = %q", got)
+	}
+}
+
+func TestUnescapeDouble(t *testing.T) {
+	cases := map[string]string{
+		`a\nb`:  "a\nb",
+		`a\tb`:  "a\tb",
+		`a\"b`:  `a"b`,
+		`a\\b`:  `a\b`,
+		`plain`: "plain",
+		`a\\nb`: "a\\nb", // escaped backslash then literal n
+	}
+	for in, want := range cases {
+		if got := unescapeDouble(in); got != want {
+			t.Errorf("unescapeDouble(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestQuoteValueRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, ".env")
+	values := []string{
+		"simple-value",
+		"with spaces and = signs",
+		"multi\nline\npem\nblock",
+		`with "quotes" and \ backslash`,
+		"",
+	}
+	content := ""
+	for i, v := range values {
+		content += "K" + strconv.Itoa(i) + "=" + QuoteValue(v) + "\n"
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Parse(p, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, v := range values {
+		key := "K" + strconv.Itoa(i)
+		if got := f.Values[key]; got != v {
+			t.Errorf("round-trip %d: got %q, want %q", i, got, v)
 		}
 	}
 }

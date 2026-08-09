@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/ldhnam/env-tui/internal/tui"
+	"github.com/ldhnam/envigator/internal/tui"
 )
 
 func main() {
@@ -15,12 +15,12 @@ func main() {
 		dir = os.Args[1]
 	}
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-		fmt.Fprintf(os.Stderr, "env-tui: %q is not a directory\n", dir)
+		fmt.Fprintf(os.Stderr, "envigator: %q is not a directory\n", dir)
 		os.Exit(1)
 	}
 	p := tea.NewProgram(tui.New(dir), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "env-tui:", err)
+		fmt.Fprintln(os.Stderr, "envigator:", err)
 		os.Exit(1)
 	}
 }

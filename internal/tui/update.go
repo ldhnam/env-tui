@@ -2,10 +2,12 @@ package tui
 
 import (
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/ldhnam/env-tui/internal/diff"
-	"github.com/ldhnam/env-tui/internal/secrets"
+	"github.com/ldhnam/envigator/internal/diff"
+	"github.com/ldhnam/envigator/internal/envfile"
+	"github.com/ldhnam/envigator/internal/secrets"
 )
 
 func (m Model) Init() tea.Cmd {
@@ -25,6 +27,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.confirming {
 			return m.updateConfirm(msg)
+		}
+		if m.editing {
+			return m.updateEditor(msg)
 		}
 		return m.handleKey(msg)
 	case toastClearMsg:
@@ -93,6 +98,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.autofill()
 	case "c":
 		return m.copyKey()
+	case "e":
+		return m.openEditor()
 	case "v":
 		m.auditView = !m.auditView
 		if m.auditView {
@@ -314,15 +321,110 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y", "enter":
 		key, val := m.confirmKey, m.confirmVal
+		replace := m.confirmReplace
 		m.confirming = false
 		m.confirmKey, m.confirmVal, m.confirmMatches = "", "", nil
+		m.confirmReplace = false
+		if replace {
+			return m.doWrite(key, val, true)
+		}
 		return m.saveConfirmed(key, val, true)
 	case "n", "N", "esc":
 		key := m.confirmKey
 		m.confirming = false
 		m.confirmKey, m.confirmVal, m.confirmMatches = "", "", nil
+		m.confirmReplace = false
 		m.toastf("cancelled — %s not saved (secret-like value)", key)
 		return m, toastCmd()
 	}
 	return m, nil
+}
+
+// openEditor starts the multi-line in-place editor for the focused key,
+// pre-filled with the key's current value in the primary file.
+func (m Model) openEditor() (tea.Model, tea.Cmd) {
+	if m.bottomView() {
+		m.toastf("switch back to Missing Keys (v/f) to edit")
+		return m, toastCmd()
+	}
+	key := m.currentKey()
+	if key == "" {
+		return m, nil
+	}
+	val := ""
+	if f := m.fileFor(m.prim); f != nil {
+		val = f.Values[key]
+	}
+	m.editKey = key
+	m.editing = true
+	m.editor = textarea.New()
+	m.editor.SetValue(val)
+	m.editor.Placeholder = "value for " + key + " (multi-line ok)"
+	m.editor.CharLimit = 0
+	m.editor.ShowLineNumbers = false
+	if m.width > 30 {
+		m.editor.SetWidth(m.width - 24)
+	}
+	m.editor.SetHeight(8)
+	m.editor.Focus()
+	return m, nil
+}
+
+func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+s":
+		return m.saveEditor()
+	case "esc":
+		m.editing = false
+		m.editor.Blur()
+		m.toastf("edit cancelled — %s unchanged", m.editKey)
+		return m, toastCmd()
+	default:
+		var cmd tea.Cmd
+		m.editor, cmd = m.editor.Update(msg)
+		return m, cmd
+	}
+}
+
+// saveEditor writes the edited value back in place, gated by the secret guard.
+func (m Model) saveEditor() (tea.Model, tea.Cmd) {
+	key, val := m.editKey, m.editor.Value()
+	m.editing = false
+	m.editor.Blur()
+	if key == "" {
+		return m, nil
+	}
+	if matches := secrets.Detect(val); len(matches) > 0 {
+		m.confirming = true
+		m.confirmKey = key
+		m.confirmVal = val
+		m.confirmMatches = matches
+		m.confirmReplace = true
+		return m, nil
+	}
+	return m.doWrite(key, val, false)
+}
+
+// doWrite persists key=val to the primary file in place. flagged indicates a
+// secret was confirmed by the user.
+func (m Model) doWrite(key, val string, flagged bool) (tea.Model, tea.Cmd) {
+	if err := m.setPrimaryValue(key, val); err != nil {
+		m.toastf("error writing %s: %v", m.primaryLabel(), err)
+	} else if flagged {
+		m.toastf("updated %s in %s (contains secret-like value)", key, m.primaryLabel())
+	} else {
+		m.toastf("updated %s in %s", key, m.primaryLabel())
+	}
+	m.reload()
+	return m, toastCmd()
+}
+
+// fileFor returns the parsed envfile for a path, if loaded.
+func (m Model) fileFor(path string) *envfile.File {
+	for _, f := range m.files {
+		if f.Path == path {
+			return f
+		}
+	}
+	return nil
 }

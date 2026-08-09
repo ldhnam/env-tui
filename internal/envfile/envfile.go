@@ -1,7 +1,6 @@
 package envfile
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -44,7 +43,8 @@ func (f *File) Label() string {
 	return f.Name
 }
 
-// Parse reads and parses a dotenv-style file at path.
+// Parse reads and parses a dotenv-style file at path. Values wrapped in
+// quotes may span multiple physical lines (e.g. PEM keys, JSON payloads).
 func Parse(path string, remote bool) (*File, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -56,9 +56,9 @@ func Parse(path string, remote bool) (*File, error) {
 		Remote: remote,
 		Values: make(map[string]string),
 	}
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	content := string(data)
+	for _, line := range logicalLines(content) {
+		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
@@ -66,7 +66,58 @@ func Parse(path string, remote bool) (*File, error) {
 			f.Add(key, value)
 		}
 	}
-	return f, scanner.Err()
+	return f, nil
+}
+
+// logicalLines splits content into assignments, joining lines that fall
+// inside an unclosed quoted value (multi-line PEM keys, JSON payloads).
+func logicalLines(content string) []string {
+	lines := strings.Split(content, "\n")
+	var out []string
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+			out = append(out, line)
+			continue
+		}
+		eq := strings.Index(trimmed, "=")
+		if eq > 0 && unclosedQuote(trimmed[eq+1:]) {
+			val := trimmed[eq+1:]
+			j := i + 1
+			for j < len(lines) && unclosedQuote(val) {
+				val += "\n" + lines[j]
+				j++
+			}
+			out = append(out, line+"\n"+strings.Join(lines[i+1:j], "\n"))
+			i = j - 1
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// unclosedQuote reports whether s starts a quoted value that is not closed
+// on this line (accounting for backslash escapes).
+func unclosedQuote(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) == 0 || (s[0] != '"' && s[0] != '\'') {
+		return false
+	}
+	q := s[0]
+	escaped := false
+	for i := 1; i < len(s); i++ {
+		switch {
+		case escaped:
+			escaped = false
+		case s[i] == '\\':
+			escaped = true
+		case s[i] == q:
+			return false
+		}
+	}
+	return true
 }
 
 func splitLine(line string) (string, string, bool) {
@@ -87,11 +138,72 @@ func splitLine(line string) (string, string, bool) {
 func unquote(s string) string {
 	if len(s) >= 2 {
 		open, close := s[0], s[len(s)-1]
-		if (open == '"' && close == '"') || (open == '\'' && close == '\'') {
+		if open == '"' && close == '"' {
+			return unescapeDouble(s[1 : len(s)-1])
+		}
+		if open == '\'' && close == '\'' {
 			return s[1 : len(s)-1]
 		}
 	}
 	return s
+}
+
+// unescapeDouble expands backslash escapes inside a double-quoted value.
+func unescapeDouble(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '\\' && i+1 < len(s) {
+			i++
+			switch s[i] {
+			case 'n':
+				b.WriteByte('\n')
+			case 't':
+				b.WriteByte('\t')
+			case 'r':
+				b.WriteByte('\r')
+			case '"':
+				b.WriteByte('"')
+			case '\\':
+				b.WriteByte('\\')
+			default:
+				b.WriteByte('\\')
+				b.WriteByte(s[i])
+			}
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// QuoteValue renders a value for writing back to a .env file. Values with
+// newlines, quotes, or backslashes are written as a single-line double-quoted
+// string with backslash escapes.
+func QuoteValue(v string) string {
+	if !strings.ContainsAny(v, "\n\r\"\\") {
+		return v
+	}
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range v {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\t':
+			b.WriteString(`\t`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // Discover returns sorted paths of dotenv files in dir.

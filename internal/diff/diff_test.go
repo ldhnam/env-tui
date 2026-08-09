@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ldhnam/env-tui/internal/envfile"
+	"github.com/ldhnam/envigator/internal/envfile"
 )
 
 func env(t *testing.T, path, body string) *envfile.File {

@@ -3,7 +3,7 @@ package tui
 import (
 	"sort"
 
-	"github.com/ldhnam/env-tui/internal/audit"
+	"github.com/ldhnam/envigator/internal/audit"
 )
 
 // displayItem is an entry in the main keys list: either an environment key

@@ -10,10 +10,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/ldhnam/env-tui/internal/audit"
-	"github.com/ldhnam/env-tui/internal/diff"
-	"github.com/ldhnam/env-tui/internal/gitguard"
-	"github.com/ldhnam/env-tui/internal/lint"
+	"github.com/ldhnam/envigator/internal/audit"
+	"github.com/ldhnam/envigator/internal/diff"
+	"github.com/ldhnam/envigator/internal/gitguard"
+	"github.com/ldhnam/envigator/internal/lint"
 )
 
 func testModel(t *testing.T) Model {
@@ -62,7 +62,7 @@ func TestModelLoadAndDiff(t *testing.T) {
 func TestViewRenders(t *testing.T) {
 	m := testModel(t)
 	v := m.View()
-	if !strings.Contains(v, "env-tui") {
+	if !strings.Contains(v, "envigator") {
 		t.Error("view missing header")
 	}
 	if !strings.Contains(v, "Target Files") {
@@ -588,5 +588,99 @@ func TestGitNotARepo(t *testing.T) {
 	m.width, m.height = 100, 30
 	if !strings.Contains(m.View(), "git: n/a") {
 		t.Error("non-repo should show 'git: n/a'")
+	}
+}
+
+func TestEditInPlace(t *testing.T) {
+	m := testModel(t)
+	m.focus = panelKeys
+	for i, st := range m.rep.All {
+		if st.Key == "DATABASE_URL" {
+			m.keyIdx = i
+		}
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if !m.editing {
+		t.Fatal("e should open the editor")
+	}
+	if got := m.editor.Value(); got != "postgres://localhost/db" {
+		t.Errorf("editor prefilled = %q", got)
+	}
+	m.editor.SetValue("postgres://new-host:5432/db")
+	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.editing {
+		t.Error("editor should close on save")
+	}
+	data, _ := os.ReadFile(m.prim)
+	if !strings.Contains(string(data), "DATABASE_URL=postgres://new-host:5432/db") {
+		t.Errorf("primary not updated in place:\n%s", data)
+	}
+	if strings.Count(string(data), "DATABASE_URL=") != 1 {
+		t.Errorf("expected in-place replacement, got:\n%s", data)
+	}
+	if st := m.rep.ByKey["DATABASE_URL"]; st == nil || st.Values[m.prim] != "postgres://new-host:5432/db" {
+		t.Errorf("model not refreshed: %+v", st)
+	}
+}
+
+func TestEditCancels(t *testing.T) {
+	m := testModel(t)
+	m.focus = panelKeys
+	m.keyIdx = 0
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	m.editor.SetValue("changed-but-cancelled")
+	m = update(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.editing {
+		t.Error("esc should close the editor")
+	}
+	data, _ := os.ReadFile(m.prim)
+	if strings.Contains(string(data), "changed-but-cancelled") {
+		t.Error("cancel should not write")
+	}
+}
+
+func TestEditMultiLineJSON(t *testing.T) {
+	m := testModel(t)
+	m.focus = panelKeys
+	m.keyIdx = 0 // NODE_ENV
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	json := "{\n  \"host\": \"localhost\",\n  \"port\": 5432\n}"
+	m.editor.SetValue(json)
+	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.editing || m.confirming {
+		t.Fatal("plain JSON should save without the secret guard")
+	}
+	data, _ := os.ReadFile(m.prim)
+	if !strings.Contains(string(data), `NODE_ENV="{\n  \"host\": \"localhost\",\n  \"port\": 5432\n}"`) {
+		t.Errorf("expected escaped quoted storage:\n%s", data)
+	}
+	if got := m.rep.ByKey["NODE_ENV"].Values[m.prim]; got != json {
+		t.Errorf("round-trip = %q, want %q", got, json)
+	}
+}
+
+func TestEditSecretGuard(t *testing.T) {
+	m := testModel(t)
+	m.focus = panelKeys
+	m.keyIdx = 0 // NODE_ENV
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	m.editor.SetValue(joinT("sk_", "live_4eC39HqLyjWDarjtT1zdp7dc"))
+	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if !m.confirming {
+		t.Fatal("editor should trigger the secret guard")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	data, _ := os.ReadFile(m.prim)
+	if strings.Contains(string(data), "live_4eC") {
+		t.Error("secret should not be saved after cancel")
+	}
+	// confirm saves in place
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	m.editor.SetValue(joinT("sk_", "live_4eC39HqLyjWDarjtT1zdp7dc"))
+	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	data, _ = os.ReadFile(m.prim)
+	if !strings.Contains(string(data), "NODE_ENV="+joinT("sk_", "live_4eC39HqLyjWDarjtT1zdp7dc")) {
+		t.Errorf("confirmed secret should save in place:\n%s", data)
 	}
 }

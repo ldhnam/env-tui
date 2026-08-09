@@ -10,9 +10,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/ldhnam/env-tui/internal/diff"
-	"github.com/ldhnam/env-tui/internal/gitguard"
-	"github.com/ldhnam/env-tui/internal/lint"
+	"github.com/ldhnam/envigator/internal/diff"
+	"github.com/ldhnam/envigator/internal/gitguard"
+	"github.com/ldhnam/envigator/internal/lint"
 )
 
 var (
@@ -47,6 +47,9 @@ func renderPane(w, h int, content string) string {
 func (m Model) View() string {
 	if m.showHelp {
 		return m.helpView()
+	}
+	if m.editing {
+		return m.editorView()
 	}
 	if m.confirming {
 		return m.confirmView()
@@ -97,7 +100,7 @@ func (m Model) detailW(w int) int {
 }
 
 func (m Model) header(w int) string {
-	title := fmt.Sprintf("env-tui: %s", m.dir)
+	title := fmt.Sprintf("envigator: %s", m.dir)
 	var right string
 	switch {
 	case m.showSecrets:
@@ -603,7 +606,7 @@ func (m Model) kindStyle(k lint.Kind) string {
 }
 
 func (m Model) footer(w int) string {
-	hint := "j/k nav · tab focus · s secrets · space reveal · x select · a autofill · c copy · v audit · f lint · r reload · ? help · q quit"
+	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · c copy · x select · v audit · f lint · r reload · ? help · q quit"
 	if m.toast != "" && time.Since(m.toastAt) < toastDur {
 		hint = dotStyle.Render("• ") + m.toast
 	}
@@ -613,7 +616,7 @@ func (m Model) footer(w int) string {
 func (m Model) emptyView() string {
 	msg := fmt.Sprintf("No .env files found in %s", m.dir)
 	box := panelStyle.Width(46).Padding(1).Render(
-		titleStyle.Render("env-tui") + "\n\n" + dimStyle.Render(msg) + "\n\n" + dimStyle.Render("q to quit"),
+		titleStyle.Render("envigator") + "\n\n" + dimStyle.Render(msg) + "\n\n" + dimStyle.Render("q to quit"),
 	)
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
@@ -625,6 +628,20 @@ func (m Model) promptView() string {
 			m.input.View() + "\n\n" +
 			dimStyle.Render("enter save · esc cancel"),
 	)
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
+// editorView is the multi-line In-Place Editor overlay for complex values.
+func (m Model) editorView() string {
+	lines := []string{
+		titleStyle.Render("In-Place Editor — " + m.editKey),
+		"",
+		dimStyle.Render("Value (multi-line supported, e.g. PEM keys / JSON):"),
+		m.editor.View(),
+		"",
+		dimStyle.Render("ctrl+s save · esc cancel"),
+	}
+	box := panelStyle.Width(min(m.width-4, 84)).Render(strings.Join(lines, "\n"))
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
 
@@ -662,7 +679,7 @@ func maskSecret(s string) string {
 
 func (m Model) helpView() string {
 	lines := []string{
-		titleStyle.Render("env-tui keybindings"),
+		titleStyle.Render("envigator keybindings"),
 		"",
 		"  j/k, ↑/↓   move in focused panel",
 		"  tab, ←/→   cycle focus: files → keys → missing",
@@ -671,6 +688,7 @@ func (m Model) helpView() string {
 		"  mouse      hover a key to reveal it (select on hover)",
 		"  x          toggle include source file",
 		"  a          autofill selected missing key into primary .env",
+		"  e          edit the focused key in place (multi-line)",
 		"  c          copy selected key's value to clipboard",
 		"  v          toggle Code Audit (ghost / zombie / used-but-missing)",
 		"  f          toggle Format & Naming Lint + leak detector",
@@ -687,6 +705,9 @@ func (m Model) helpView() string {
 		"",
 		dimStyle.Render("Safety Check: the header git badge shows whether .env files are git-ignored."),
 		dimStyle.Render("In Target Files: ✓ ignored · ! not ignored · T tracked · – not a git repo."),
+		"",
+		dimStyle.Render("In-Place Editor (e): type multi-line values (RSA keys, JSON); ctrl+s saves,"),
+		dimStyle.Render("esc cancels. Multi-line values are stored as quoted \\n-escaped strings."),
 		dimStyle.Render("Code Audit scans .js .ts .py .go .rs .php .rb .sh and more for env var usage."),
 		dimStyle.Render("Press q or ? to close."),
 	}

@@ -1,14 +1,14 @@
-# env-tui
+# envigator
 
 > An interactive terminal dashboard for inspecting, diffing, and sanitizing `.env` files across environments — without leaking secrets on screen.
 
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/ldhnam/env-tui/ci.yml?branch=main)](https://github.com/ldhnam/env-tui/actions)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ldhnam/env-tui)](https://goreportcard.com/report/github.com/ldhnam/env-tui)
-[![Release](https://img.shields.io/github/v/release/ldhnam/env-tui?sort=semver)](https://github.com/ldhnam/env-tui/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/ldhnam/envigator/ci.yml?branch=main)](https://github.com/ldhnam/envigator/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ldhnam/envigator)](https://goreportcard.com/report/github.com/ldhnam/envigator)
+[![Release](https://img.shields.io/github/v/release/ldhnam/envigator?sort=semver)](https://github.com/ldhnam/envigator/releases)
 
-**env-tui** is a terminal UI for developers who juggle `.env` files across microservices, branches, and environments. It diffs your local files against templates and remote/deployed environments, audits which variables your code actually uses, lints file formatting, and guards against accidentally committing real secrets — all without printing plaintext values by default.
+**envigator** is a terminal UI for developers who juggle `.env` files across microservices, branches, and environments. It diffs your local files against templates and remote/deployed environments, audits which variables your code actually uses, lints file formatting, and guards against accidentally committing real secrets — all without printing plaintext values by default.
 
 Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss](https://github.com/charmbracelet/lipgloss).
 
@@ -20,10 +20,11 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 🚨 **Leak detector & pre-commit guard** — flags Stripe / AWS / OpenAI / GitHub token patterns; autofill requires `y`/`n` before saving a secret-like value
 - 🕶️ **Stealth mode** — values masked as `••••••••`; reveal all (`s`), one key (`space`), or hover with the mouse
 - 🛡️ **Safety Check** — a header badge reports whether `.env`/secret files are git-ignored, with per-file markers in Target Files (`✓` ignored · `!` not ignored · `T` tracked · `–` not a git repo)
+- ✏️ **In-Place Editor** — press `e` to edit the focused key's value in a multi-line editor (ideal for RSA private keys, JSON payloads); `ctrl+s` saves in place, `esc` cancels, and multi-line values are stored as quoted `\n`-escaped strings that round-trip cleanly
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```
-env-tui: demo                                             ● Secrets hidden [s]
+envigator: demo                                             ● Secrets hidden [s]
 ╭────────────────────╮╭────────────────────────────╮╭────────────────────────────╮
 │ Target Files  [x   ││ Keys  [j/k]                ││ Key: DATABASE_URL          │
 │ select]            ││ ✓ PORT                     ││ .env.example       : •••••• │
@@ -44,7 +45,7 @@ j/k nav · tab focus · s secrets · x select · a autofill · c copy · r reloa
 
 ## Why
 
-Developers constantly juggle `.env` files across microservices and git branches. Keys get added in production or staging, leaving local files broken with missing variables, exposed secrets, or out-of-sync `.env.example` templates. env-tui gives you a side-by-side view of every environment source so you can spot gaps at a glance.
+Developers constantly juggle `.env` files across microservices and git branches. Keys get added in production or staging, leaving local files broken with missing variables, exposed secrets, or out-of-sync `.env.example` templates. envigator gives you a side-by-side view of every environment source so you can spot gaps at a glance.
 
 ## Features
 
@@ -62,27 +63,27 @@ Developers constantly juggle `.env` files across microservices and git branches.
 ## Install
 
 ```sh
-go install github.com/ldhnam/env-tui@latest
+go install github.com/ldhnam/envigator@latest
 ```
 
-Or grab the [latest release binary](https://github.com/ldhnam/env-tui/releases) for your platform.
+Or grab the [latest release binary](https://github.com/ldhnam/envigator/releases) for your platform.
 
 Or run directly from source:
 
 ```sh
-go run github.com/ldhnam/env-tui@latest <directory>
+go run github.com/ldhnam/envigator@latest <directory>
 ```
 
 ## Usage
 
 ```sh
-env-tui [directory]     # defaults to the current directory
+envigator [directory]     # defaults to the current directory
 ```
 
 Point it at a project directory containing `.env*` files:
 
 ```sh
-env-tui ~/projects/payment-service
+envigator ~/projects/payment-service
 ```
 
 ### Keybindings
@@ -96,6 +97,7 @@ env-tui ~/projects/payment-service
 | `mouse`             | hover a key to reveal it (selects on hover)     |
 | `x`                 | toggle whether a source file is included |
 | `a`                 | autofill the selected missing key into the primary `.env` |
+| `e`                 | edit the focused key in place (multi-line editor)   |
 | `c`                 | copy the selected key's value to the clipboard |
 | `v`                 | toggle the Code Audit panel                     |
 | `f`                 | toggle the Format & Naming Lint panel           |
@@ -109,7 +111,7 @@ env-tui ~/projects/payment-service
 1. **Target Files** — checkbox list of every discovered `.env*` source. `.env`-local variants are `(local)`; deployment files are tagged `(remote)`. Each file also carries a git-safety glyph (`✓` ignored, `!` not ignored, `T` tracked in git, `–` not a repo) and a lint issue badge; `.env.example` templates are exempt from git warnings since they're meant to be committed.
    - The header shows an overall **Safety Check** badge: `git: protected`, `git: N exposed`, or `git: n/a` when not inside a git work tree. Ignore status is resolved with `git check-ignore` and covers `.gitignore`, `.git/info/exclude`, and negation rules — files already tracked are flagged as `T` since ignore rules can't protect them.
 2. **Keys** — union of all keys across selected sources with a status glyph: `✓` MATCH, `⚠` DIFF, `✗` MISSING.
-3. **Detail** — the focused key's value in each selected source (masked by default; `space` or hover to reveal), its aggregate status, a `Format Valid` hint, and how many times it's referenced in code.
+3. **Detail** — the focused key's value in each selected source (masked by default; `space` or hover to reveal), its aggregate status, a `Format Valid` hint, and how many times it's referenced in code. Press `e` to edit the value in place.
 4. **Missing Keys** — keys absent from the primary local file (`.env.local` preferred, else `.env`), with the sources that do define them. `a` autofills, `c` copies; keys referenced in code are flagged `[used ×N]`.
 5. **Code Audit** (`v`) — cross-references source usage with the environment inventory:
    - **Ghost Keys** — referenced in code but missing from every `.env` file. Also surfaced at the top of the **Keys** panel (marked `✗`) so they're browsable and navigable.

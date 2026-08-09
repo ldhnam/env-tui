@@ -1,4 +1,4 @@
-module github.com/ldhnam/env-tui
+module github.com/ldhnam/envigator
 
 go 1.24.2
 

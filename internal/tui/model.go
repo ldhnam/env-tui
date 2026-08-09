@@ -4,17 +4,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/ldhnam/env-tui/internal/audit"
-	"github.com/ldhnam/env-tui/internal/diff"
-	"github.com/ldhnam/env-tui/internal/envfile"
-	"github.com/ldhnam/env-tui/internal/gitguard"
-	"github.com/ldhnam/env-tui/internal/lint"
-	"github.com/ldhnam/env-tui/internal/secrets"
+	"github.com/ldhnam/envigator/internal/audit"
+	"github.com/ldhnam/envigator/internal/diff"
+	"github.com/ldhnam/envigator/internal/envfile"
+	"github.com/ldhnam/envigator/internal/gitguard"
+	"github.com/ldhnam/envigator/internal/lint"
+	"github.com/ldhnam/envigator/internal/secrets"
 )
 
 type panel int
@@ -107,6 +109,12 @@ type Model struct {
 	confirmKey     string
 	confirmVal     string
 	confirmMatches []secrets.Match
+	confirmReplace bool // true when the guarded write is an in-place edit
+
+	// In-place editor: multi-line text editing for complex key values.
+	editing bool
+	editKey string
+	editor  textarea.Model
 
 	width  int
 	height int
@@ -271,6 +279,33 @@ func (m *Model) appendPrimary(key, value string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "\n%s=%s\n", key, value)
+	_, err = fmt.Fprintf(f, "\n%s=%s\n", key, envfile.QuoteValue(value))
 	return err
+}
+
+// setPrimaryValue writes key=value in place: it replaces the key's first
+// assignment in the primary file, or appends it when the key is absent.
+func (m *Model) setPrimaryValue(key, value string) error {
+	data, err := os.ReadFile(m.prim)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	replaced := false
+	prefix := key + "="
+	for i, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "export ") {
+			t = strings.TrimPrefix(t, "export ")
+		}
+		if strings.HasPrefix(t, prefix) && strings.Index(t, "=") == len(key) {
+			lines[i] = key + "=" + envfile.QuoteValue(value)
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		lines = append(lines, key+"="+envfile.QuoteValue(value))
+	}
+	return os.WriteFile(m.prim, []byte(strings.Join(lines, "\n")), 0o644)
 }
