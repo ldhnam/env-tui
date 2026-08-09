@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"env-tui/internal/tui"
+	"github.com/ldhnam/env-tui/internal/tui"
 )
 
 func main() {

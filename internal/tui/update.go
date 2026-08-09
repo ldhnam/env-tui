@@ -4,7 +4,8 @@ import (
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"env-tui/internal/diff"
+	"github.com/ldhnam/env-tui/internal/diff"
+	"github.com/ldhnam/env-tui/internal/secrets"
 )
 
 func (m Model) Init() tea.Cmd {
@@ -21,6 +22,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.prompting {
 			return m.updatePrompt(msg)
+		}
+		if m.confirming {
+			return m.updateConfirm(msg)
 		}
 		return m.handleKey(msg)
 	case toastClearMsg:
@@ -272,13 +276,14 @@ func (m Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "" {
 			return m, nil
 		}
-		if err := m.appendPrimary(key, val); err != nil {
-			m.toastf("error writing %s: %v", m.primaryLabel(), err)
-		} else {
-			m.toastf("added %s to %s", key, m.primaryLabel())
+		if matches := secrets.Detect(val); len(matches) > 0 {
+			m.confirming = true
+			m.confirmKey = key
+			m.confirmVal = val
+			m.confirmMatches = matches
+			return m, nil
 		}
-		m.reload()
-		return m, toastCmd()
+		return m.saveConfirmed(key, val, false)
 	case "esc":
 		m.prompting = false
 		m.input.Blur()
@@ -288,4 +293,36 @@ func (m Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	}
+}
+
+// saveConfirmed writes key=val to the primary file. flagged indicates the
+// value matched a secret pattern and the user chose to save anyway.
+func (m Model) saveConfirmed(key, val string, flagged bool) (tea.Model, tea.Cmd) {
+	if err := m.appendPrimary(key, val); err != nil {
+		m.toastf("error writing %s: %v", m.primaryLabel(), err)
+	} else if flagged {
+		m.toastf("added %s to %s (contains secret-like value)", key, m.primaryLabel())
+	} else {
+		m.toastf("added %s to %s", key, m.primaryLabel())
+	}
+	m.reload()
+	return m, toastCmd()
+}
+
+// updateConfirm handles the y/n decision for a secret-like autofill value.
+func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y", "enter":
+		key, val := m.confirmKey, m.confirmVal
+		m.confirming = false
+		m.confirmKey, m.confirmVal, m.confirmMatches = "", "", nil
+		return m.saveConfirmed(key, val, true)
+	case "n", "N", "esc":
+		key := m.confirmKey
+		m.confirming = false
+		m.confirmKey, m.confirmVal, m.confirmMatches = "", "", nil
+		m.toastf("cancelled — %s not saved (secret-like value)", key)
+		return m, toastCmd()
+	}
+	return m, nil
 }

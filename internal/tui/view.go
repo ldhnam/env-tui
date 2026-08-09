@@ -9,8 +9,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"env-tui/internal/diff"
-	"env-tui/internal/lint"
+	"github.com/ldhnam/env-tui/internal/diff"
+	"github.com/ldhnam/env-tui/internal/lint"
 )
 
 var (
@@ -45,6 +45,9 @@ func renderPane(w, h int, content string) string {
 func (m Model) View() string {
 	if m.showHelp {
 		return m.helpView()
+	}
+	if m.confirming {
+		return m.confirmView()
 	}
 	if m.prompting {
 		return m.promptView()
@@ -151,6 +154,7 @@ func (m Model) keysPane(h, w int) string {
 	inv := m.inventoryKeys()
 	innerH := h - 2
 	lintCounts := m.lintCountByKey()
+	secretKeys := m.secretKeySet()
 	var rows []string
 	for _, it := range items {
 		row := m.keyGlyph(it) + " " + it.key
@@ -159,6 +163,9 @@ func (m Model) keysPane(h, w int) string {
 		}
 		if n := lintCounts[it.key]; n > 0 {
 			row += diffStyle.Render(" ⚠" + strconv.Itoa(n))
+		}
+		if secretKeys[it.key] {
+			row += missStyle.Render(" S")
 		}
 		if !it.ghost && m.audit != nil {
 			if _, used := m.audit.Usages[it.key]; !used && inv[it.key] {
@@ -275,6 +282,10 @@ func (m Model) detailPane(h, w int) string {
 	m.codeRefLine(key, &b)
 	if n := m.lintCountByKey()[key]; n > 0 {
 		b.WriteString(diffStyle.Render(fmt.Sprintf("Lint : %d issue(s) — press f", n)))
+		b.WriteString("\n")
+	}
+	if matches := m.keySecrets(key); len(matches) > 0 {
+		b.WriteString(missStyle.Render("Secret : " + joinPatterns(matches) + " detected"))
 		b.WriteString("\n")
 	}
 	return renderPane(w, h, b.String())
@@ -467,12 +478,13 @@ func (m Model) lintCountByKey() map[string]int {
 	return out
 }
 
-// lintPane lists format & naming issues per file.
+// lintPane lists format & naming issues and detected credential leaks.
 func (m Model) lintPane(h, w int) string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Format & Naming Lint"))
 	if m.lint != nil {
-		b.WriteString(fmt.Sprintf("  (%d files · %d issues)", m.lint.Files, len(m.lint.Issues)))
+		b.WriteString(fmt.Sprintf("  (%d files · %d issues · %d secrets)",
+			m.lint.Files, len(m.lint.Issues), len(m.secretHits())))
 	} else if m.lintScan {
 		b.WriteString(dimStyle.Render("  (linting .env files…)"))
 	} else {
@@ -490,6 +502,16 @@ func (m Model) lintPane(h, w int) string {
 			b.WriteString("\n")
 		}
 		return renderPane(w, h, b.String())
+	}
+	hits := m.secretHits()
+	if len(hits) > 0 {
+		b.WriteString(missStyle.Render("  Secrets Detected — values match known credential formats:"))
+		b.WriteString("\n")
+		for _, h := range hits {
+			b.WriteString(fmt.Sprintf("    %-20s %-14s %s",
+				truncate(h.Key, 20), h.Pattern, dimStyle.Render(shortName(h.Path))))
+			b.WriteString("\n")
+		}
 	}
 	if len(m.lint.Issues) == 0 {
 		b.WriteString(matchStyle.Render("  clean: keys well-formed, no whitespace or syntax issues"))
@@ -556,6 +578,38 @@ func (m Model) promptView() string {
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
 
+// confirmView is the Pre-Commit Guard gate shown before a secret-like value
+// is written to the primary .env file.
+func (m Model) confirmView() string {
+	lines := []string{
+		titleStyle.Render("Pre-Commit Guard"),
+		"",
+		fmt.Sprintf("The value for %s looks like a real credential:", dimStyle.Render(m.confirmKey)),
+		"",
+	}
+	for _, mt := range m.confirmMatches {
+		lines = append(lines, fmt.Sprintf("  %s %s",
+			missStyle.Render("●"),
+			missStyle.Render(mt.Name)+dimStyle.Render(" ("+maskSecret(mt.Raw)+")"),
+		))
+	}
+	lines = append(lines,
+		"",
+		missStyle.Render("Saving this could expose an unencrypted secret if committed."),
+		"",
+		dimStyle.Render("[y] save anyway    [n] cancel"),
+	)
+	box := panelStyle.Width(66).Render(strings.Join(lines, "\n"))
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
+func maskSecret(s string) string {
+	if len(s) <= 6 {
+		return "••••"
+	}
+	return s[:4] + "…" + strings.Repeat("•", 4)
+}
+
 func (m Model) helpView() string {
 	lines := []string{
 		titleStyle.Render("env-tui keybindings"),
@@ -569,7 +623,7 @@ func (m Model) helpView() string {
 		"  a          autofill selected missing key into primary .env",
 		"  c          copy selected key's value to clipboard",
 		"  v          toggle Code Audit (ghost / zombie / used-but-missing)",
-		"  f          toggle Format & Naming Lint (bad names / syntax / whitespace)",
+		"  f          toggle Format & Naming Lint + leak detector",
 		"  r          rescan directory + re-audit source code",
 		"  g / G      jump to top / bottom",
 		"  ?          toggle this help",
@@ -577,6 +631,9 @@ func (m Model) helpView() string {
 		"",
 		dimStyle.Render("Values are masked by default; press s to reveal all, space to reveal the"),
 		dimStyle.Render("focused key, or hover a key with the mouse."),
+		"",
+		dimStyle.Render("Autofill is guarded: values that match Stripe / AWS / OpenAI / GitHub token"),
+		dimStyle.Render("patterns require a y/n confirmation before being written to .env."),
 		dimStyle.Render("Code Audit scans .js .ts .py .go .rs .php .rb .sh and more for env var usage."),
 		dimStyle.Render("Press q or ? to close."),
 	}

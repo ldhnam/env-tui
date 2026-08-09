@@ -1,8 +1,25 @@
 # env-tui
 
-An interactive terminal dashboard for inspecting, diffing, and sanitizing environment variables across local `.env` files, `.env.example` templates, and remote/deployed environment sources — without exposing plaintext secrets on screen by default.
+> An interactive terminal dashboard for inspecting, diffing, and sanitizing `.env` files across environments — without leaking secrets on screen.
+
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/ldhnam/env-tui/ci.yml?branch=main)](https://github.com/ldhnam/env-tui/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ldhnam/env-tui)](https://goreportcard.com/report/github.com/ldhnam/env-tui)
+[![Release](https://img.shields.io/github/v/release/ldhnam/env-tui?sort=semver)](https://github.com/ldhnam/env-tui/releases)
+
+**env-tui** is a terminal UI for developers who juggle `.env` files across microservices, branches, and environments. It diffs your local files against templates and remote/deployed environments, audits which variables your code actually uses, lints file formatting, and guards against accidentally committing real secrets — all without printing plaintext values by default.
 
 Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss](https://github.com/charmbracelet/lipgloss).
+
+## Highlights
+
+- 🔎 **Side-by-side diffing** across `.env`, `.env.local`, `.env.example`, and remote sources — see `MATCH` / `DIFF` / `MISSING` at a glance
+- 👻 **Ghost & zombie keys** — code refs that exist in no `.env` file, and env keys nothing references
+- 🧹 **Format & naming lint** — `UPPER_SNAKE_CASE`, syntax, whitespace, duplicates, empty values
+- 🚨 **Leak detector & pre-commit guard** — flags Stripe / AWS / OpenAI / GitHub token patterns; autofill requires `y`/`n` before saving a secret-like value
+- 🕶️ **Stealth mode** — values masked as `••••••••`; reveal all (`s`), one key (`space`), or hover with the mouse
+- ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```
 env-tui: demo                                             ● Secrets hidden [s]
@@ -36,6 +53,7 @@ Developers constantly juggle `.env` files across microservices and git branches.
   - **Used-but-missing** — referenced in code and present elsewhere, but not in your local `.env`.
   - **Zombie keys** — defined in `.env` files but never referenced anywhere in the source code.
 - **Format & Naming Lint** — flags non-`UPPER_SNAKE_CASE` keys, malformed `KEY=VALUE` syntax (missing `=`, unclosed quotes), accidental whitespace (around `=`, in values, leading indentation), duplicate keys, and empty values — with per-line findings grouped by file.
+- **Pre-Commit Guard & Leak Detector** — values that look like unencrypted credentials (Stripe, AWS, OpenAI, GitHub, Slack, Google, JWT, private keys, …) are detected and surfaced as `S` markers in the Keys list, flagged in the detail pane, and listed in the Lint panel. When autofill writes a secret-like value, a `y`/`n` confirmation is required before it hits the `.env` file.
 - **Stealth/Masking mode** — sensitive values are masked as `••••••••` by default. Press `s` to reveal everything, `space` to reveal just the focused key, or **hover a key with the mouse** to peek at it (hover also selects the key).
 - **Interactive sync** — press `a` on a missing key to pull its name into your local `.env` with a placeholder prompt; press `c` to copy a value straight to the clipboard.
 - **Remote-aware** — files like `.env.staging` are tagged `(remote)` and treated as deployed environments. The same source model can be wired to secret managers (Doppler, Infisical, AWS SSM, …).
@@ -46,10 +64,12 @@ Developers constantly juggle `.env` files across microservices and git branches.
 go install github.com/ldhnam/env-tui@latest
 ```
 
+Or grab the [latest release binary](https://github.com/ldhnam/env-tui/releases) for your platform.
+
 Or run directly from source:
 
 ```sh
-go run . <directory>
+go run github.com/ldhnam/env-tui@latest <directory>
 ```
 
 ## Usage
@@ -93,13 +113,14 @@ env-tui ~/projects/payment-service
    - **Ghost Keys** — referenced in code but missing from every `.env` file. Also surfaced at the top of the **Keys** panel (marked `✗`) so they're browsable and navigable.
    - **Used but missing from the primary env** — present in other sources but absent locally.
    - **Zombie Keys** — defined in `.env` files but never referenced in code (marked `z` in the Keys list). Candidates for cleanup.
-6. **Format & Naming Lint** (`f`) — per-file list of issues with line numbers and kinds:
+6. **Format & Naming Lint + Leak Detector** (`f`) — per-file list of issues with line numbers and kinds:
+   - **Secrets Detected** — keys whose values match known credential formats (potential leaks).
    - `bad-name` — key is not `UPPER_SNAKE_CASE` (e.g. `databaseUrl`, `MY-KEY`, `123KEY`).
    - `whitespace` — accidental spaces around `=`, leading indentation, or leading/trailing spaces in values.
    - `syntax` — missing `=` (expected `KEY=VALUE`), empty key name, unclosed quotes.
    - `duplicate` — the same key defined more than once in a file.
    - `empty-value` — key present with no value.
-   Affected files get a `⚠N` badge in **Target Files**, and flagged keys carry a `⚠N` marker in the **Keys** panel and detail view.
+   Affected files get a `⚠N` badge in **Target Files**, and flagged keys carry a `⚠N` marker in the **Keys** panel and detail view. Secret-bearing keys carry an `S` marker, and autofill values matching a credential pattern are gated behind a `y`/`n` confirmation (Pre-Commit Guard).
 
 ## Code Audit coverage
 
@@ -120,6 +141,24 @@ The auditor uses fast, per-language pattern detection (no full AST, so it works 
 | `$X`, `${X}`, `${X:-default}`, `$env:X` | Shell, Dockerfile, Makefile, YAML |
 
 It also detects JS destructuring (`const { PORT, DB } = process.env;`). It skips hidden dirs, `node_modules`, `vendor`, `dist`, `build`, `target`, etc., and never scans `.env*` files themselves. Ghost/zombie classification considers **all** discovered `.env*` files (selected or not) as the environment inventory.
+
+## Leak detector coverage
+
+Values are scanned against known credential formats:
+
+| Detector | Pattern |
+| --- | --- |
+| Stripe | `sk_live_`, `sk_test_`, `rk_*`, `pk_*` |
+| AWS | `AKIA…`/`ASIA…` access keys, session tokens |
+| OpenAI | `sk-…` |
+| GitHub | `ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`, `github_pat_` |
+| Slack | `xoxb-`, `xoxp-`, `xoxa-`, `xoxr-` |
+| Google | `AIza…` API keys, `GOCSPX-` OAuth secrets |
+| SendGrid / Twilio / npm / Heroku | `SG.`, `SK…`, `npm_`, `heroku_` |
+| JWT / Bearer | `eyJ…`, `Bearer …` |
+| Private keys | `-----BEGIN …PRIVATE KEY-----` |
+
+Detected values are never printed in plaintext — the guard and panels show only the pattern name and a masked prefix.
 
 ### Which file is "primary"?
 

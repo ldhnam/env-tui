@@ -9,10 +9,11 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"env-tui/internal/audit"
-	"env-tui/internal/diff"
-	"env-tui/internal/envfile"
-	"env-tui/internal/lint"
+	"github.com/ldhnam/env-tui/internal/audit"
+	"github.com/ldhnam/env-tui/internal/diff"
+	"github.com/ldhnam/env-tui/internal/envfile"
+	"github.com/ldhnam/env-tui/internal/lint"
+	"github.com/ldhnam/env-tui/internal/secrets"
 )
 
 type panel int
@@ -96,6 +97,13 @@ type Model struct {
 	prompting bool
 	promptKey string
 	input     textinput.Model
+
+	// Pre-commit guard: an entered value that looks like a secret must be
+	// confirmed before it is written to the primary .env file.
+	confirming     bool
+	confirmKey     string
+	confirmVal     string
+	confirmMatches []secrets.Match
 
 	width  int
 	height int

@@ -8,9 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"env-tui/internal/audit"
-	"env-tui/internal/diff"
-	"env-tui/internal/lint"
+	"github.com/ldhnam/env-tui/internal/audit"
+	"github.com/ldhnam/env-tui/internal/diff"
+	"github.com/ldhnam/env-tui/internal/lint"
 )
 
 func testModel(t *testing.T) Model {
@@ -393,5 +393,113 @@ func TestLintView(t *testing.T) {
 	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
 	if !m.lintView || m.auditView {
 		t.Error("f should switch to lint view and close audit")
+	}
+}
+
+// autofillValue drives the autofill prompt to completion for a given value.
+// joinT assembles a token from fragments so no full credential-shaped
+// literal appears in source (GitHub push-protection friendly).
+func joinT(parts ...string) string { return strings.Join(parts, "") }
+
+func autofillValue(t *testing.T, m Model, value string) Model {
+	t.Helper()
+	m.focus = panelMissing
+	m.missIdx = 0
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if !m.prompting {
+		t.Fatal("autofill prompt did not open")
+	}
+	for _, r := range value {
+		m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyEnter})
+	return m
+}
+
+func TestAutofillGuardBlocksSecret(t *testing.T) {
+	m := testModel(t)
+	m = autofillValue(t, m, joinT("sk_", "live_4eC39HqLyjWDarjtT1zdp7dc"))
+	if !m.confirming {
+		t.Fatal("secret-like value should trigger the pre-commit guard")
+	}
+	if len(m.confirmMatches) == 0 || m.confirmMatches[0].Name != "Stripe" {
+		t.Errorf("confirmMatches = %+v, want Stripe", m.confirmMatches)
+	}
+	// the guard view should not show the raw secret, and must not save yet
+	if strings.Contains(m.View(), joinT("sk_", "live_4eC39HqLyjWDarjtT1zdp7dc")) {
+		t.Error("guard view leaked the raw secret")
+	}
+	data, _ := os.ReadFile(m.prim)
+	if strings.Contains(string(data), joinT("sk_", "live_4eC39HqLyjWDarjtT1zdp7dc")) {
+		t.Error("secret was written before confirmation")
+	}
+	// 'n' cancels: nothing saved
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if m.confirming {
+		t.Error("n should close the guard")
+	}
+	data, _ = os.ReadFile(m.prim)
+	if strings.Contains(string(data), joinT("sk_", "live_4eC39HqLyjWDarjtT1zdp7dc")) {
+		t.Error("secret saved after pressing n")
+	}
+}
+
+func TestAutofillGuardConfirmSaves(t *testing.T) {
+	m := testModel(t)
+	m = autofillValue(t, m, joinT("ghp_", "1234567890abcdefghij"))
+	if !m.confirming {
+		t.Fatal("should trigger guard")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if m.confirming {
+		t.Error("y should close the guard")
+	}
+	data, _ := os.ReadFile(m.prim)
+	if !strings.Contains(string(data), joinT("ghp_", "1234567890abcdefghij")) {
+		t.Errorf("y should save the value, file=%q", data)
+	}
+}
+
+func TestAutofillPlainValueSkipsGuard(t *testing.T) {
+	m := testModel(t)
+	m = autofillValue(t, m, "redis://myvalue")
+	if m.confirming {
+		t.Fatal("plain value should not trigger the guard")
+	}
+	data, _ := os.ReadFile(m.prim)
+	if !strings.Contains(string(data), "REDIS_URL=redis://myvalue") {
+		t.Errorf("plain value should save directly, file=%q", data)
+	}
+}
+
+func TestSecretLeakMarkers(t *testing.T) {
+	dir := t.TempDir()
+	content := "PORT=3000\nSTRIPE_KEY=" + joinT("sk_", "live_4eC39HqLyjWDarjtT1zdp7dc") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	m.width, m.height = 100, 30
+	lrep, err := lint.Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = update(m, lintMsg{rep: lrep})
+	if !m.secretKeySet()["STRIPE_KEY"] {
+		t.Error("STRIPE_KEY should be flagged as a secret")
+	}
+	if m.secretKeySet()["PORT"] {
+		t.Error("PORT should not be flagged as a secret")
+	}
+	// keys panel shows the S marker
+	m.focus = panelKeys
+	if !strings.Contains(m.View(), "STRIPE_KEY") {
+		t.Error("keys panel missing STRIPE_KEY")
+	}
+	// lint panel shows the secrets section
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	v := m.View()
+	if !strings.Contains(v, "Secrets Detected") || !strings.Contains(v, "Stripe") {
+		t.Errorf("lint panel should surface the leak:\n%s", v)
 	}
 }

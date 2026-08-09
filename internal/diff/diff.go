@@ -1,7 +1,7 @@
 package diff
 
 import (
-	"env-tui/internal/envfile"
+	"github.com/ldhnam/env-tui/internal/envfile"
 	"regexp"
 )
 
