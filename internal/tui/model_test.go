@@ -756,3 +756,46 @@ func TestCopyExportToast(t *testing.T) {
 		t.Error("E should copy export and set a toast")
 	}
 }
+
+func TestLoadedEnv(t *testing.T) {
+	m := testModel(t)
+	env := m.loadedEnv()
+	if env["NODE_ENV"] != "development" {
+		t.Errorf("NODE_ENV = %q, want primary value development", env["NODE_ENV"])
+	}
+	if env["PORT"] != "3000" {
+		t.Errorf("PORT = %q, want 3000", env["PORT"])
+	}
+	// gap-filled from non-primary files
+	if env["REDIS_URL"] != "redis://x" {
+		t.Errorf("REDIS_URL = %q, want redis://x (from .env.example)", env["REDIS_URL"])
+	}
+	if env["REDIS_URL"] == "" {
+		t.Error("REDIS_URL should be filled")
+	}
+}
+
+func TestChildEnv(t *testing.T) {
+	m := testModel(t)
+	t.Setenv("PORT", "9999")
+	child := m.childEnv()
+	hasLoaded, hasInherited := false, false
+	for _, kv := range child {
+		switch {
+		case kv == "PORT=3000":
+			hasLoaded = true
+		case kv == "PORT=9999":
+			hasInherited = true
+		}
+	}
+	if !hasLoaded {
+		t.Error("child env should contain the loaded PORT=3000")
+	}
+	if hasInherited {
+		t.Error("child env should override the inherited PORT=9999")
+	}
+	// the global environment must not be mutated
+	if got := os.Getenv("PORT"); got != "9999" {
+		t.Errorf("global PORT = %q, want 9999 (must stay unchanged)", got)
+	}
+}

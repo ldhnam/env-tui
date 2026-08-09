@@ -606,7 +606,7 @@ func (m Model) kindStyle(k lint.Kind) string {
 }
 
 func (m Model) footer(w int) string {
-	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · x select · c value · C name · E export · B block · T shell · v audit · f lint · r reload · ? help · q quit"
+	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · x select · c value · C name · E export · B block · T shell · R nested shell · v audit · f lint · r reload · ? help · q quit"
 	if m.toast != "" && time.Since(m.toastAt) < toastDur {
 		hint = dotStyle.Render("• ") + m.toast
 	}
@@ -695,7 +695,7 @@ func (m Model) helpView() string {
 		"  T          cycle export shell format (bash / zsh / fish)",
 		"  v          toggle Code Audit (ghost / zombie / used-but-missing)",
 		"  f          toggle Format & Naming Lint + leak detector",
-		"  r          rescan directory + re-audit source code",
+		"  r / R      reload & rescan / spawn a nested shell with the loaded env",
 		"  g / G      jump to top / bottom",
 		"  ?          toggle this help",
 		"  q          quit",

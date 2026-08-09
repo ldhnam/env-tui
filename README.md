@@ -22,6 +22,7 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 🛡️ **Safety Check** — a header badge reports whether `.env`/secret files are git-ignored, with per-file markers in Target Files (`✓` ignored · `!` not ignored · `T` tracked · `–` not a git repo)
 - ✏️ **In-Place Editor** — press `e` to edit the focused key's value in a multi-line editor (ideal for RSA private keys, JSON payloads); `ctrl+s` saves in place, `esc` cancels, and multi-line values are stored as quoted `\n`-escaped strings that round-trip cleanly
 - 📋 **One-Click Clipboard Exports** — copy `export KEY="VALUE"` lines or full blocks formatted for **Bash / Zsh / Fish** (`T` cycles the target shell), plus copy key names or values individually: `c` value, `C` name, `E` export line, `B` export block
+- 🐚 **Nested Shell** — press `R` to spawn a temporary interactive shell loaded with the `.env` variables, without touching the global/system environment (the vars exist only inside the child process; exit returns to the TUI)
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```
@@ -105,7 +106,7 @@ envigator ~/projects/payment-service
 | `T`                 | cycle export shell format (bash / zsh / fish) |
 | `v`                 | toggle the Code Audit panel                     |
 | `f`                 | toggle the Format & Naming Lint panel           |
-| `r`                 | rescan the directory + re-audit source code      |
+| `r` / `R`           | rescan directory / spawn a nested shell with the loaded env |
 | `g` / `G`           | jump to top / bottom                     |
 | `?`                 | toggle help                              |
 | `q`                 | quit                                     |

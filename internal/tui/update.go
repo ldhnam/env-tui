@@ -52,6 +52,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.lint = msg.rep
 		return m, nil
+	case shellDoneMsg:
+		if msg.err != nil {
+			m.toastf("nested shell exited with error: %v", msg.err)
+		} else {
+			m.toastf("nested shell exited")
+		}
+		return m, toastCmd()
 	}
 	return m, nil
 }
@@ -130,6 +137,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.lintScan = true
 		m.toastf("reloaded %d file(s), rescanning…", len(m.files))
 		return m, tea.Batch(auditCmd(m.dir), lintCmd(m.dir), toastCmd())
+	case "R":
+		m.toastf("spawning nested %s with %d env vars", m.shell, len(m.loadedEnv()))
+		return m, tea.Batch(m.spawnShell(), toastCmd())
 	case "?", "/":
 		m.showHelp = !m.showHelp
 		return m, nil
