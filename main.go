@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,6 +15,7 @@ import (
 	"github.com/ldhnam/envigator/internal/envfile"
 	"github.com/ldhnam/envigator/internal/snapshot"
 	"github.com/ldhnam/envigator/internal/tui"
+	"github.com/ldhnam/envigator/internal/vault"
 )
 
 func main() {
@@ -30,6 +32,9 @@ func main() {
 			return
 		case "hook":
 			cliHook(os.Args[2:])
+			return
+		case "pull":
+			cliPull(os.Args[2:])
 			return
 		case "help", "-h", "--help":
 			printUsage()
@@ -52,6 +57,7 @@ Usage:
       --name NAME        snapshot to restore/delete
   envigator hook install [--pre-commit] [--post-checkout]
   envigator hook check --staged | --ghosts
+  envigator pull -vault PROVIDER [-vault-project X] [-vault-env Y] [dir]
 
 Flags:
   -vault string        secret manager provider (doppler, vault, op, aws, infisical)
@@ -177,6 +183,65 @@ func promptPassphrase() (string, error) {
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr)
 	return string(b), err
+}
+
+// cliPull fetches secrets from a secret manager and writes keys missing from
+// the primary .env into it (direct integration connector).
+func cliPull(args []string) {
+	fs := flag.NewFlagSet("pull", flag.ExitOnError)
+	provider := fs.String("vault", "", "provider (doppler, vault, op, aws, infisical)")
+	project := fs.String("vault-project", "", "provider project / item / kv path / region")
+	env := fs.String("vault-env", "", "provider environment / config / vault")
+	_ = fs.Parse(args)
+	dir := "."
+	if rest := fs.Args(); len(rest) > 0 {
+		dir = rest[0]
+	}
+	if *provider == "" {
+		fmt.Fprintln(os.Stderr, "envigator pull: -vault provider required (doppler, vault, op, aws, infisical)")
+		os.Exit(1)
+	}
+	remote, err := vault.Fetch(vault.Provider(*provider), *project, *env)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "envigator pull: %v\n", err)
+		os.Exit(1)
+	}
+	paths, err := envfile.Discover(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "envigator pull: %v\n", err)
+		os.Exit(1)
+	}
+	prim := envfile.Primary(paths)
+	if prim == "" {
+		fmt.Fprintln(os.Stderr, "envigator pull: no primary .env found")
+		os.Exit(1)
+	}
+	current, err := envfile.Parse(prim, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "envigator pull: %v\n", err)
+		os.Exit(1)
+	}
+	f, err := os.OpenFile(prim, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "envigator pull: %v\n", err)
+		os.Exit(1)
+	}
+	defer f.Close()
+	added := 0
+	keys := make([]string, 0, len(remote))
+	for k := range remote {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if _, ok := current.Values[k]; ok {
+			continue
+		}
+		if _, err := fmt.Fprintf(f, "\n%s=%s\n", k, envfile.QuoteValue(remote[k])); err == nil {
+			added++
+		}
+	}
+	fmt.Printf("pulled %d secret(s) from %s into %s\n", added, *provider, filepath.Base(prim))
 }
 
 // cliGenerate writes a sanitized .env.example for the target directory.
