@@ -129,6 +129,14 @@ type Model struct {
 	vaultErr      string
 	pushConfirm   bool
 
+	// Encrypted snapshots.
+	snapshotsView bool
+	snapshots     []string // newest first
+	snapIdx       int
+	passPrompting bool
+	passAction    string // "create" / "restore"
+	passSnapshot  string
+
 	width  int
 	height int
 }

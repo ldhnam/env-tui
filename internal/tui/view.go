@@ -48,6 +48,12 @@ func (m Model) View() string {
 	if m.showHelp {
 		return m.helpView()
 	}
+	if m.passPrompting {
+		return m.passPromptView()
+	}
+	if m.snapshotsView {
+		return m.snapshotsViewOverlay()
+	}
 	if m.pushConfirm {
 		return m.pushConfirmView()
 	}
@@ -629,7 +635,7 @@ func (m Model) kindStyle(k lint.Kind) string {
 }
 
 func (m Model) footer(w int) string {
-	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · x select · c value · C name · E export · B block · T shell · R shell · P pull · U push · t template · v audit · f lint · ? help · q quit"
+	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · x select · c value · C name · E export · B block · T shell · R shell · P pull · U push · t template · S snapshot · v audit · f lint · ? help · q quit"
 	if m.toast != "" && time.Since(m.toastAt) < toastDur {
 		hint = dotStyle.Render("• ") + m.toast
 	}
@@ -665,6 +671,45 @@ func (m Model) editorView() string {
 		dimStyle.Render("ctrl+s save · esc cancel"),
 	}
 	box := panelStyle.Width(min(m.width-4, 84)).Render(strings.Join(lines, "\n"))
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
+// passPromptView asks for the snapshot passphrase (masked input).
+func (m Model) passPromptView() string {
+	action := "create a snapshot"
+	if m.passAction == "restore" {
+		action = "restore " + m.passSnapshot
+	}
+	box := panelStyle.Width(56).Render(
+		titleStyle.Render("Encrypted Snapshots") + "\n\n" +
+			dimStyle.Render("Passphrase to "+action+":") + "\n" +
+			m.input.View() + "\n\n" +
+			dimStyle.Render("enter confirm · esc cancel"),
+	)
+	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+}
+
+// snapshotsViewOverlay lists local encrypted snapshots with actions.
+func (m Model) snapshotsViewOverlay() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Encrypted Snapshots"))
+	b.WriteString("\n\n")
+	if len(m.snapshots) == 0 {
+		b.WriteString(dimStyle.Render("  no snapshots yet — press c to create one"))
+		b.WriteString("\n\n")
+	} else {
+		for i, s := range m.snapshots {
+			line := "  " + s
+			if i == m.snapIdx {
+				line = curStyle.Render(line)
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(dimStyle.Render("  c create · enter restore · d delete · esc close"))
+	box := panelStyle.Width(64).Render(b.String())
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
 }
 
@@ -741,6 +786,7 @@ func (m Model) helpView() string {
 		"  r / R      reload & rescan / spawn a nested shell with the loaded env",
 		"  P / U      pull vault secrets into primary .env / push primary to vault",
 		"  t          generate a sanitized .env.example template",
+		"  S          encrypted snapshots (create / restore / delete)",
 		"  g / G      jump to top / bottom",
 		"  ?          toggle this help",
 		"  q          quit",

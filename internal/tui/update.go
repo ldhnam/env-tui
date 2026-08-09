@@ -1,16 +1,20 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ldhnam/envigator/internal/diff"
 	"github.com/ldhnam/envigator/internal/envfile"
 	"github.com/ldhnam/envigator/internal/secrets"
+	"github.com/ldhnam/envigator/internal/snapshot"
 	"github.com/ldhnam/envigator/internal/vault"
 )
 
@@ -67,6 +71,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.pushConfirm {
 			return m.updatePushConfirm(msg)
+		}
+		if m.passPrompting {
+			return m.updatePassPrompt(msg)
+		}
+		if m.snapshotsView {
+			return m.updateSnapshots(msg)
 		}
 		return m.handleKey(msg)
 	case toastClearMsg:
@@ -201,6 +211,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.vaultPushPrompt()
 	case "t":
 		return m.generateTemplate()
+	case "S":
+		return m.openSnapshots()
 	case "?", "/":
 		m.showHelp = !m.showHelp
 		return m, nil
@@ -645,4 +657,131 @@ func sortedStringKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// openSnapshots shows the encrypted snapshots panel.
+func (m Model) openSnapshots() (tea.Model, tea.Cmd) {
+	list, _ := snapshot.List(m.dir)
+	m.snapshots = list
+	m.snapIdx = 0
+	m.snapshotsView = true
+	return m, nil
+}
+
+func (m Model) updateSnapshots(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.snapshotsView = false
+		return m, nil
+	case "c":
+		m.startPassPrompt("create", "")
+		return m, nil
+	case "j", "down":
+		m.snapIdx = clamp(m.snapIdx+1, 0, len(m.snapshots)-1)
+		return m, nil
+	case "k", "up":
+		m.snapIdx = clamp(m.snapIdx-1, 0, len(m.snapshots)-1)
+		return m, nil
+	case "enter":
+		if len(m.snapshots) == 0 {
+			return m, nil
+		}
+		m.startPassPrompt("restore", m.snapshots[m.snapIdx])
+		return m, nil
+	case "d":
+		if len(m.snapshots) == 0 {
+			return m, nil
+		}
+		name := m.snapshots[m.snapIdx]
+		if err := snapshot.Delete(m.dir, name); err != nil {
+			m.toastf("delete failed: %v", err)
+			return m, toastCmd()
+		}
+		m.snapshots = append(m.snapshots[:m.snapIdx], m.snapshots[m.snapIdx+1:]...)
+		m.snapIdx = clamp(m.snapIdx, 0, len(m.snapshots)-1)
+		m.toastf("deleted snapshot %s", name)
+		return m, toastCmd()
+	}
+	return m, nil
+}
+
+func (m *Model) startPassPrompt(action, snap string) {
+	m.passAction = action
+	m.passSnapshot = snap
+	m.snapshotsView = false
+	m.input.SetValue("")
+	m.input.Placeholder = "passphrase"
+	m.input.EchoMode = textinput.EchoPassword
+	m.input.Focus()
+	m.passPrompting = true
+}
+
+func (m Model) updatePassPrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		pass := m.input.Value()
+		m.passPrompting = false
+		m.input.Blur()
+		m.input.EchoMode = textinput.EchoNormal
+		if pass == "" {
+			m.toastf("passphrase required")
+			return m, toastCmd()
+		}
+		return m.runPassAction(pass)
+	case "esc":
+		m.passPrompting = false
+		m.input.Blur()
+		m.input.EchoMode = textinput.EchoNormal
+		m.toastf("snapshot action cancelled")
+		return m, toastCmd()
+	default:
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m Model) runPassAction(pass string) (tea.Model, tea.Cmd) {
+	switch m.passAction {
+	case "create":
+		files := make(map[string]string)
+		for _, f := range m.files {
+			if f.Virtual {
+				continue
+			}
+			if data, err := os.ReadFile(f.Path); err == nil {
+				files[f.Name] = string(data)
+			}
+		}
+		name, err := snapshot.Create(m.dir, pass, files)
+		if err != nil {
+			m.toastf("snapshot failed: %v", err)
+		} else {
+			m.toastf("created snapshot %s (%d files)", name, len(files))
+		}
+		if list, lerr := snapshot.List(m.dir); lerr == nil {
+			m.snapshots = list
+		}
+	case "restore":
+		files, err := snapshot.Read(m.dir, m.passSnapshot, pass)
+		if err != nil {
+			m.toastf("restore failed: %v", err)
+			m.passAction, m.passSnapshot = "", ""
+			m.snapshotsView = true
+			return m, toastCmd()
+		}
+		n := 0
+		for name, content := range files {
+			if err := os.WriteFile(filepath.Join(m.dir, name), []byte(content), 0o644); err == nil {
+				n++
+			}
+		}
+		m.toastf("restored %d file(s) from %s", n, m.passSnapshot)
+		m.reload()
+	default:
+		m.toastf("unknown snapshot action %q", m.passAction)
+	}
+	m.passAction, m.passSnapshot = "", ""
+	m.snapshotsView = true
+	return m, toastCmd()
 }

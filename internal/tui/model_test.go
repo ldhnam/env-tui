@@ -15,6 +15,7 @@ import (
 	"github.com/ldhnam/envigator/internal/diff"
 	"github.com/ldhnam/envigator/internal/gitguard"
 	"github.com/ldhnam/envigator/internal/lint"
+	"github.com/ldhnam/envigator/internal/snapshot"
 )
 
 func testModel(t *testing.T) Model {
@@ -920,5 +921,90 @@ func TestTemplateNeedsPlaceholder(t *testing.T) {
 		if got := templateNeedsPlaceholder(c.key, c.val); got != c.want {
 			t.Errorf("templateNeedsPlaceholder(%s,%q) = %v, want %v", c.key, c.val, got, c.want)
 		}
+	}
+}
+
+func TestSnapshotCreateFlow(t *testing.T) {
+	m := testModel(t)
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("S")})
+	if !m.snapshotsView {
+		t.Fatal("S should open the snapshots panel")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if !m.passPrompting {
+		t.Fatal("c should open the passphrase prompt")
+	}
+	// type a passphrase and confirm
+	for _, r := range "hunter2" {
+		m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.passPrompting {
+		t.Error("passphrase prompt should close after enter")
+	}
+	list, err := snapshot.List(m.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 snapshot, got %v", list)
+	}
+	// on-disk snapshot is not plaintext
+	data, _ := os.ReadFile(filepath.Join(snapshot.DirPath(m.dir), list[0]))
+	if strings.Contains(string(data), "NODE_ENV") {
+		t.Error("snapshot stored plaintext")
+	}
+}
+
+func TestSnapshotRestoreFlow(t *testing.T) {
+	m := testModel(t)
+	// create a snapshot, then mutate the primary file
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("S")})
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	for _, r := range "pass123" {
+		m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyEnter})
+	list, _ := snapshot.List(m.dir)
+	if len(list) != 1 {
+		t.Fatal("expected a snapshot")
+	}
+	// mutate primary
+	if err := os.WriteFile(m.prim, []byte("PORT=9999\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// restore
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("S")})
+	m = update(m, tea.KeyMsg{Type: tea.KeyEnter}) // restore selected
+	if !m.passPrompting {
+		t.Fatal("restore should ask for the passphrase")
+	}
+	for _, r := range "pass123" {
+		m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyEnter})
+	data, _ := os.ReadFile(m.prim)
+	if !strings.Contains(string(data), "NODE_ENV=development") {
+		t.Errorf("restore did not bring back the original file:\n%s", data)
+	}
+}
+
+func TestSnapshotDelete(t *testing.T) {
+	m := testModel(t)
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("S")})
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	for _, r := range "pw" {
+		m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyEnter})
+	// reopen panel, delete
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("S")})
+	if !m.snapshotsView {
+		t.Fatal("S should open snapshots panel")
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	list, _ := snapshot.List(m.dir)
+	if len(list) != 0 {
+		t.Errorf("snapshot not deleted: %v", list)
 	}
 }

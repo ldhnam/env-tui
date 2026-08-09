@@ -1,6 +1,10 @@
 # build artifacts
 /env-tui
+/envigator
 *.exe
+
+# local encrypted snapshots
+.envigator/
 
 # editor/OS noise
 .DS_Store
