@@ -21,6 +21,7 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 🕶️ **Stealth mode** — values masked as `••••••••`; reveal all (`s`), one key (`space`), or hover with the mouse
 - 🛡️ **Safety Check** — a header badge reports whether `.env`/secret files are git-ignored, with per-file markers in Target Files (`✓` ignored · `!` not ignored · `T` tracked · `–` not a git repo)
 - ✏️ **In-Place Editor** — press `e` to edit the focused key's value in a multi-line editor (ideal for RSA private keys, JSON payloads); `ctrl+s` saves in place, `esc` cancels, and multi-line values are stored as quoted `\n`-escaped strings that round-trip cleanly
+- 📋 **One-Click Clipboard Exports** — copy `export KEY="VALUE"` lines or full blocks formatted for **Bash / Zsh / Fish** (`T` cycles the target shell), plus copy key names or values individually: `c` value, `C` name, `E` export line, `B` export block
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```
@@ -98,7 +99,10 @@ envigator ~/projects/payment-service
 | `x`                 | toggle whether a source file is included |
 | `a`                 | autofill the selected missing key into the primary `.env` |
 | `e`                 | edit the focused key in place (multi-line editor)   |
-| `c`                 | copy the selected key's value to the clipboard |
+| `c` / `C`           | copy key value / key name                |
+| `E`                 | copy `export KEY="VALUE"` line for the focused key |
+| `B`                 | copy an export block for all keys in the primary `.env` |
+| `T`                 | cycle export shell format (bash / zsh / fish) |
 | `v`                 | toggle the Code Audit panel                     |
 | `f`                 | toggle the Format & Naming Lint panel           |
 | `r`                 | rescan the directory + re-audit source code      |

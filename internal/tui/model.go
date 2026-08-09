@@ -116,12 +116,15 @@ type Model struct {
 	editKey string
 	editor  textarea.Model
 
+	// Clipboard export target shell: bash, zsh, or fish.
+	shell string
+
 	width  int
 	height int
 }
 
 func New(dir string) Model {
-	m := Model{dir: dir, auditScan: true, lintScan: true, revealed: make(map[string]bool)}
+	m := Model{dir: dir, auditScan: true, lintScan: true, revealed: make(map[string]bool), shell: detectShell()}
 	m.input = textinput.New()
 	m.input.Placeholder = "value"
 	m.input.CharLimit = 4096

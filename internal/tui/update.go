@@ -4,6 +4,7 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"strings"
 
 	"github.com/ldhnam/envigator/internal/diff"
 	"github.com/ldhnam/envigator/internal/envfile"
@@ -97,7 +98,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		return m.autofill()
 	case "c":
-		return m.copyKey()
+		return m.copyValue()
+	case "C":
+		return m.copyKeyName()
+	case "E":
+		return m.copyExport()
+	case "B":
+		return m.copyExportBlock()
+	case "T":
+		m.cycleShell()
+		return m, nil
 	case "e":
 		return m.openEditor()
 	case "v":
@@ -240,37 +250,94 @@ func (m Model) autofill() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// copyKey copies the selected key's value (from primary, else first source)
+// copyValue copies the selected key's value (from primary, else first source)
 // to the system clipboard.
-func (m Model) copyKey() (tea.Model, tea.Cmd) {
+func (m Model) copyValue() (tea.Model, tea.Cmd) {
 	if m.bottomView() {
 		m.toastf("switch back to Missing Keys (v/f) to copy")
 		return m, toastCmd()
 	}
-	st := m.currentState()
-	if st == nil {
-		return m, nil
-	}
-	val, ok := st.Values[m.prim]
+	key := m.currentKey()
+	val, ok := m.valueFor(key)
 	if !ok {
-		for _, f := range m.rep.Files {
-			if st.Present[f] {
-				val = st.Values[f]
-				ok = true
-				break
-			}
-		}
-	}
-	if !ok {
-		m.toastf("no value to copy for %s", st.Key)
+		m.toastf("no value to copy for %s", key)
 		return m, toastCmd()
 	}
 	if err := clipboard.WriteAll(val); err != nil {
 		m.toastf("copy failed: %v", err)
 		return m, toastCmd()
 	}
-	m.toastf("copied %s to clipboard", st.Key)
+	m.toastf("copied %s value to clipboard", key)
 	return m, toastCmd()
+}
+
+// copyKeyName copies just the selected key's name.
+func (m Model) copyKeyName() (tea.Model, tea.Cmd) {
+	if m.bottomView() {
+		m.toastf("switch back to Missing Keys (v/f) to copy")
+		return m, toastCmd()
+	}
+	key := m.currentKey()
+	if key == "" {
+		return m, nil
+	}
+	if err := clipboard.WriteAll(key); err != nil {
+		m.toastf("copy failed: %v", err)
+		return m, toastCmd()
+	}
+	m.toastf("copied key name %s", key)
+	return m, toastCmd()
+}
+
+// copyExport copies an `export KEY="VALUE"` line for the focused key,
+// formatted for the current shell target.
+func (m Model) copyExport() (tea.Model, tea.Cmd) {
+	if m.bottomView() {
+		m.toastf("switch back to Missing Keys (v/f) to copy")
+		return m, toastCmd()
+	}
+	key := m.currentKey()
+	line, ok := m.exportLine(key)
+	if !ok {
+		m.toastf("no value to export for %s", key)
+		return m, toastCmd()
+	}
+	if err := clipboard.WriteAll(line); err != nil {
+		m.toastf("copy failed: %v", err)
+		return m, toastCmd()
+	}
+	m.toastf("copied export %s (%s)", key, m.shell)
+	return m, toastCmd()
+}
+
+// copyExportBlock copies export lines for every key in the primary file.
+func (m Model) copyExportBlock() (tea.Model, tea.Cmd) {
+	if m.bottomView() {
+		m.toastf("switch back to Missing Keys (v/f) to copy")
+		return m, toastCmd()
+	}
+	block := m.exportBlock()
+	if block == "" {
+		m.toastf("nothing to export")
+		return m, toastCmd()
+	}
+	if err := clipboard.WriteAll(block); err != nil {
+		m.toastf("copy failed: %v", err)
+		return m, toastCmd()
+	}
+	m.toastf("copied %d exports to clipboard (%s)", strings.Count(block, "\n")+1, m.shell)
+	return m, toastCmd()
+}
+
+// cycleShell advances the clipboard export target shell.
+func (m *Model) cycleShell() {
+	for i, s := range shellNames {
+		if s == m.shell {
+			m.shell = shellNames[(i+1)%len(shellNames)]
+			return
+		}
+	}
+	m.shell = shellNames[0]
 }
 
 func (m Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

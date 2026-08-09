@@ -684,3 +684,75 @@ func TestEditSecretGuard(t *testing.T) {
 		t.Errorf("confirmed secret should save in place:\n%s", data)
 	}
 }
+
+func TestShellExportFormats(t *testing.T) {
+	cases := []struct {
+		shell, key, val, want string
+	}{
+		{"bash", "PORT", "3000", `export PORT="3000"`},
+		{"zsh", "PORT", "3000", `export PORT="3000"`},
+		{"fish", "PORT", "3000", `set -gx PORT "3000"`},
+		{"bash", "DB", "postgres://u:p@h/db", `export DB="postgres://u:p@h/db"`},
+		{"bash", "K", `a"b\c`, `export K="a\"b\\c"`},
+		{"bash", "K", "has $dollar", `export K="has \$dollar"`},
+		{"bash", "K", "line1\nline2", `export K="line1\nline2"`},
+		{"fish", "K", "a`b", `set -gx K "a` + "`" + `b"`},
+	}
+	for _, c := range cases {
+		if got := shellExport(c.shell, c.key, c.val); got != c.want {
+			t.Errorf("shellExport(%s,%s,%q) = %q, want %q", c.shell, c.key, c.val, got, c.want)
+		}
+	}
+}
+
+func TestExportLineAndShellCycle(t *testing.T) {
+	m := testModel(t)
+	m.shell = "bash"
+	m.focus = panelKeys
+	for i, st := range m.rep.All {
+		if st.Key == "DATABASE_URL" {
+			m.keyIdx = i
+		}
+	}
+	line, ok := m.exportLine("DATABASE_URL")
+	if !ok || line != `export DATABASE_URL="postgres://localhost/db"` {
+		t.Errorf("exportLine = %q, %v", line, ok)
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("T")})
+	if m.shell != "zsh" {
+		t.Errorf("after T shell = %s, want zsh", m.shell)
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("T")})
+	if m.shell != "fish" {
+		t.Errorf("after 2nd T shell = %s, want fish", m.shell)
+	}
+	line, _ = m.exportLine("DATABASE_URL")
+	if line != `set -gx DATABASE_URL "postgres://localhost/db"` {
+		t.Errorf("fish exportLine = %q", line)
+	}
+}
+
+func TestExportBlock(t *testing.T) {
+	m := testModel(t)
+	m.shell = "bash"
+	block := m.exportBlock()
+	for _, want := range []string{
+		`export NODE_ENV="development"`,
+		`export PORT="3000"`,
+		`export DATABASE_URL="postgres://localhost/db"`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("export block missing %q:\n%s", want, block)
+		}
+	}
+}
+
+func TestCopyExportToast(t *testing.T) {
+	m := testModel(t)
+	m.shell = "bash"
+	m.focus = panelKeys
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("E")})
+	if m.toast == "" {
+		t.Error("E should copy export and set a toast")
+	}
+}

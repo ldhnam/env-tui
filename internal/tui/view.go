@@ -606,7 +606,7 @@ func (m Model) kindStyle(k lint.Kind) string {
 }
 
 func (m Model) footer(w int) string {
-	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · c copy · x select · v audit · f lint · r reload · ? help · q quit"
+	hint := "j/k nav · tab focus · s secrets · space reveal · e edit · a autofill · x select · c value · C name · E export · B block · T shell · v audit · f lint · r reload · ? help · q quit"
 	if m.toast != "" && time.Since(m.toastAt) < toastDur {
 		hint = dotStyle.Render("• ") + m.toast
 	}
@@ -689,7 +689,10 @@ func (m Model) helpView() string {
 		"  x          toggle include source file",
 		"  a          autofill selected missing key into primary .env",
 		"  e          edit the focused key in place (multi-line)",
-		"  c          copy selected key's value to clipboard",
+		"  c / C      copy key value / key name",
+		"  E          copy export KEY=\"VALUE\" line for the focused key",
+		"  B          copy export block for all keys in the primary .env",
+		"  T          cycle export shell format (bash / zsh / fish)",
 		"  v          toggle Code Audit (ghost / zombie / used-but-missing)",
 		"  f          toggle Format & Naming Lint + leak detector",
 		"  r          rescan directory + re-audit source code",
