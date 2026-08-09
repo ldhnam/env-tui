@@ -31,7 +31,10 @@ Developers constantly juggle `.env` files across microservices and git branches.
 ## Features
 
 - **Side-by-side diffing** — visually highlights keys that are missing, differing, or in sync across `.env`, `.env.local`, `.env.example`, and remote vault files (`.env.staging`, `.env.production`, …).
-- **Code Audit** — scans project source files (`.js`, `.ts`, `.py`, `.go`, `.rs`, `.php`, `.rb`, `.sh`, …) for env var usage (`process.env.PORT`, `os.Getenv("DATABASE_URL")`, `$VAR`, …) and cross-references it with the diff to flag keys that are **used in code but missing locally** and keys that are **defined but never used**.
+- **Code Audit** — scans project source files (`.js`, `.ts`, `.py`, `.go`, `.rs`, `.php`, `.rb`, `.sh`, …) for env var usage (`process.env.PORT`, `os.Getenv("DATABASE_URL")`, `$VAR`, …) and cross-references it with your environment files to detect:
+  - **Ghost keys** — referenced in code but missing from *all* `.env` files (runtime breaks waiting to happen).
+  - **Used-but-missing** — referenced in code and present elsewhere, but not in your local `.env`.
+  - **Zombie keys** — defined in `.env` files but never referenced anywhere in the source code.
 - **Obfuscation mode** — sensitive values are masked as `••••••` until you press `s`.
 - **Interactive sync** — press `a` on a missing key to pull its name into your local `.env` with a placeholder prompt; press `c` to copy a value straight to the clipboard.
 - **Remote-aware** — files like `.env.staging` are tagged `(remote)` and treated as deployed environments. The same source model can be wired to secret managers (Doppler, Infisical, AWS SSM, …).
@@ -82,9 +85,10 @@ env-tui ~/projects/payment-service
 2. **Keys** — union of all keys across selected sources with a status glyph: `✓` MATCH, `⚠` DIFF, `✗` MISSING.
 3. **Detail** — the focused key's value in each selected source (masked by default), its aggregate status, a `Format Valid` hint, and how many times it's referenced in code.
 4. **Missing Keys** — keys absent from the primary local file (`.env.local` preferred, else `.env`), with the sources that do define them. `a` autofills, `c` copies; keys referenced in code are flagged `[used ×N]`.
-5. **Code Audit** (`v`) — cross-references source usage with the diff:
-   - **Missing from the primary env but used in code** — the keys most likely to break at runtime.
-   - **Present in env but unused in code** — candidates for cleanup.
+5. **Code Audit** (`v`) — cross-references source usage with the environment inventory:
+   - **Ghost Keys** — referenced in code but missing from every `.env` file. Also surfaced at the top of the **Keys** panel (marked `✗`) so they're browsable and navigable.
+   - **Used but missing from the primary env** — present in other sources but absent locally.
+   - **Zombie Keys** — defined in `.env` files but never referenced in code (marked `z` in the Keys list). Candidates for cleanup.
 
 ## Code Audit coverage
 
@@ -104,7 +108,7 @@ The auditor uses fast, per-language pattern detection (no full AST, so it works 
 | `ProcessInfo.processInfo.environment["X"]` | Swift |
 | `$X`, `${X}`, `${X:-default}`, `$env:X` | Shell, Dockerfile, Makefile, YAML |
 
-It also detects JS destructuring (`const { PORT, DB } = process.env;`). It skips hidden dirs, `node_modules`, `vendor`, `dist`, `build`, `target`, etc., and never scans `.env*` files themselves.
+It also detects JS destructuring (`const { PORT, DB } = process.env;`). It skips hidden dirs, `node_modules`, `vendor`, `dist`, `build`, `target`, etc., and never scans `.env*` files themselves. Ghost/zombie classification considers **all** discovered `.env*` files (selected or not) as the environment inventory.
 
 ### Which file is "primary"?
 

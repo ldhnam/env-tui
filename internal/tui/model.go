@@ -151,8 +151,9 @@ func (m *Model) currentKey() string {
 			return m.rep.Missing[m.missIdx].Key
 		}
 	case panelFiles, panelKeys:
-		if m.keyIdx >= 0 && m.keyIdx < len(m.rep.All) {
-			return m.rep.All[m.keyIdx].Key
+		items := m.displayKeys()
+		if m.keyIdx >= 0 && m.keyIdx < len(items) {
+			return items[m.keyIdx].key
 		}
 	}
 	return ""
@@ -162,7 +163,17 @@ func (m *Model) currentState() *diff.KeyState {
 	if m.rep == nil {
 		return nil
 	}
-	return m.rep.ByKey[m.currentKey()]
+	if m.focus == panelMissing {
+		if m.missIdx >= 0 && m.missIdx < len(m.rep.Missing) {
+			return m.rep.ByKey[m.rep.Missing[m.missIdx].Key]
+		}
+		return nil
+	}
+	items := m.displayKeys()
+	if m.keyIdx >= 0 && m.keyIdx < len(items) && !items[m.keyIdx].ghost {
+		return m.rep.ByKey[items[m.keyIdx].key]
+	}
+	return nil
 }
 
 func (m *Model) clampCursors() {
@@ -175,8 +186,10 @@ func (m *Model) clampCursors() {
 	if m.keyIdx < 0 {
 		m.keyIdx = 0
 	}
-	if m.rep != nil && m.keyIdx >= len(m.rep.All) {
-		m.keyIdx = len(m.rep.All) - 1
+	if m.rep != nil {
+		if n := len(m.displayKeys()); m.keyIdx >= n {
+			m.keyIdx = n - 1
+		}
 	}
 	if m.missIdx < 0 {
 		m.missIdx = 0

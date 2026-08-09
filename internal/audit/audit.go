@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -21,10 +22,8 @@ type Usage struct {
 }
 
 func (u *Usage) add(file string, line int) {
-	for _, l := range u.Files[file] {
-		if l == line {
-			return
-		}
+	if slices.Contains(u.Files[file], line) {
+		return
 	}
 	u.Count++
 	if u.Files == nil {
@@ -66,10 +65,8 @@ type rule struct {
 }
 
 func (r *rule) matches(lowerBase string) bool {
-	for _, b := range r.bases {
-		if lowerBase == b {
-			return true
-		}
+	if slices.Contains(r.bases, lowerBase) {
+		return true
 	}
 	for _, e := range r.exts {
 		if strings.HasSuffix(lowerBase, e) {

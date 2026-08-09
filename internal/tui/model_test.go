@@ -27,7 +27,7 @@ func testModel(t *testing.T) Model {
 	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	write("src/app.js", "const port = process.env.PORT;\nconst db = process.env.REDIS_URL;\n")
+	write("src/app.js", "const port = process.env.PORT;\nconst db = process.env.REDIS_URL;\nconst gh = process.env.GHOST_API_TOKEN;\n")
 	m := New(dir)
 	m.width, m.height = 100, 30
 	return m
@@ -152,7 +152,7 @@ func update(m Model, msg tea.Msg) Model {
 func TestTabCyclesFocus(t *testing.T) {
 	m := testModel(t)
 	seen := map[panel]bool{}
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		m = update(m, tea.KeyMsg{Type: tea.KeyTab})
 		seen[m.focus] = true
 	}
@@ -215,23 +215,54 @@ func TestAuditScanAndView(t *testing.T) {
 	if m.refCount("REDIS_URL") == 0 {
 		t.Error("REDIS_URL should have code references")
 	}
+	// ghost detection: GHOST_API_TOKEN is used in code but in no .env file
+	if len(m.ghostKeys()) != 1 || m.ghostKeys()[0].Key != "GHOST_API_TOKEN" {
+		t.Errorf("ghostKeys = %+v, want [GHOST_API_TOKEN]", m.ghostKeys())
+	}
+	// zombie detection: NODE_ENV is in .env files but never referenced
+	if !m.isZombie("NODE_ENV") {
+		t.Error("NODE_ENV should be a zombie key")
+	}
+	if m.isZombie("PORT") {
+		t.Error("PORT is referenced in code, must not be a zombie")
+	}
 	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
 	if !m.auditView {
 		t.Fatal("v should toggle audit view")
 	}
 	v := m.View()
-	if !strings.Contains(v, "Code Audit") {
-		t.Error("audit pane missing")
-	}
-	if !strings.Contains(v, "Missing from") || !strings.Contains(v, "REDIS_URL") {
-		t.Error("used-but-missing section missing")
-	}
-	if !strings.Contains(v, "unused in code") {
-		t.Error("unused section missing")
+	for _, want := range []string{"Code Audit", "Ghost Keys", "GHOST_API_TOKEN", "Used but missing from", "Zombie Keys"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("audit view missing %q", want)
+		}
 	}
 	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
 	if m.auditView {
 		t.Error("v should close audit view")
+	}
+}
+
+func TestGhostKeyInKeysPanel(t *testing.T) {
+	m := testModel(t)
+	rep, _ := audit.Scan(m.dir)
+	m = update(m, auditMsg{rep: rep})
+	m.focus = panelKeys
+	v := m.View()
+	if !strings.Contains(v, "GHOST_API_TOKEN") {
+		t.Errorf("ghost key should appear in keys panel:\n%s", v)
+	}
+	// navigate to the ghost (it is prepended, index 0)
+	m.keyIdx = 0
+	key := m.currentKey()
+	if key != "GHOST_API_TOKEN" {
+		t.Errorf("currentKey = %q, want GHOST_API_TOKEN", key)
+	}
+	if m.currentState() != nil {
+		t.Error("ghost key should have no diff state")
+	}
+	dv := m.View()
+	if !strings.Contains(dv, "ghost key") {
+		t.Errorf("detail pane should describe the ghost key:\n%s", dv)
 	}
 }
 

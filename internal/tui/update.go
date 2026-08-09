@@ -106,7 +106,7 @@ func (m *Model) move(d int) {
 		m.fileIdx = clamp(m.fileIdx+d, 0, len(m.files)-1)
 	case panelKeys:
 		if m.rep != nil {
-			m.keyIdx = clamp(m.keyIdx+d, 0, len(m.rep.All)-1)
+			m.keyIdx = clamp(m.keyIdx+d, 0, len(m.displayKeys())-1)
 		}
 	case panelMissing:
 		if m.rep == nil || m.auditView {
@@ -125,7 +125,7 @@ func (m *Model) jumpToBottom() {
 		return
 	}
 	m.fileIdx = len(m.files) - 1
-	m.keyIdx = len(m.rep.All) - 1
+	m.keyIdx = len(m.displayKeys()) - 1
 	m.missIdx = len(m.rep.Missing) - 1
 }
 

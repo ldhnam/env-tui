@@ -9,7 +9,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"env-tui/internal/audit"
 	"env-tui/internal/diff"
 )
 
@@ -45,14 +44,8 @@ func (m Model) View() string {
 		return m.emptyView()
 	}
 
-	h := m.height
-	if h < 24 {
-		h = 24
-	}
-	w := m.width
-	if w < 80 {
-		w = 80
-	}
+	h := max(m.height, 24)
+	w := max(m.width, 80)
 
 	mainH := h - 2 // header + footer
 	colsH := mainH * 3 / 5
@@ -80,18 +73,12 @@ func (m Model) View() string {
 }
 
 func (m Model) filesW(w int) int {
-	fw := w / 4
-	if fw < 20 {
-		fw = 20
-	}
+	fw := max(w/4, 20)
 	return fw
 }
 
 func (m Model) keysW(w int) int {
-	kw := w / 4
-	if kw < 28 {
-		kw = 28
-	}
+	kw := max(w/4, 28)
 	return kw
 }
 
@@ -107,10 +94,7 @@ func (m Model) header(w int) string {
 	} else {
 		right = dotStyle.Render("● Secrets hidden [s]")
 	}
-	pad := w - lipgloss.Width(title) - lipgloss.Width(right)
-	if pad < 1 {
-		pad = 1
-	}
+	pad := max(w-lipgloss.Width(title)-lipgloss.Width(right), 1)
 	return lipgloss.NewStyle().
 		Bold(true).
 		Foreground(accent).
@@ -144,14 +128,22 @@ func (m Model) filesPane(h, w int) string {
 	return panelStyle.Width(w).Height(h - 2).Render(b.String())
 }
 
-// keysPane renders the union of keys across selected sources with status glyphs.
+// keysPane renders ghost keys and the union of environment keys with status
+// glyphs and code-reference counts.
 func (m Model) keysPane(h, w int) string {
 	innerH := h - 2
+	items := m.displayKeys()
+	inv := m.inventoryKeys()
 	var rows []string
-	for _, st := range m.rep.All {
-		row := statusGlyph(st) + " " + st.Key
-		if n := m.refCount(st.Key); n > 0 {
+	for _, it := range items {
+		row := m.keyGlyph(it) + " " + it.key
+		if n := m.refCount(it.key); n > 0 {
 			row += " " + dimStyle.Render("×"+strconv.Itoa(n))
+		}
+		if !it.ghost && m.audit != nil {
+			if _, used := m.audit.Usages[it.key]; !used && inv[it.key] {
+				row += dimStyle.Render(" z")
+			}
 		}
 		rows = append(rows, truncate(row, w-4))
 	}
@@ -203,6 +195,10 @@ func (m Model) detailPane(h, w int) string {
 		b.WriteString("\n")
 		b.WriteString(dimStyle.Render("(no keys yet)"))
 		return panelStyle.Width(w).Height(h - 2).Render(b.String())
+	}
+	items := m.displayKeys()
+	if m.keyIdx >= 0 && m.keyIdx < len(items) && items[m.keyIdx].ghost {
+		return m.ghostDetailPane(h, w, key)
 	}
 	st := m.currentState()
 	if st == nil {
@@ -259,6 +255,18 @@ func (m Model) detailPane(h, w int) string {
 	}
 	m.codeRefLine(key, &b)
 	return panelStyle.Width(w).Height(h - 2).Render(truncateLines(b.String(), innerH))
+}
+
+// ghostDetailPane renders a key that is referenced in code but absent from
+// every .env file.
+func (m Model) ghostDetailPane(h, w int, key string) string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Key: " + key))
+	b.WriteString("\n")
+	b.WriteString(missStyle.Render("  ghost key — not present in any .env file"))
+	b.WriteString("\n\n")
+	m.codeRefLine(key, &b)
+	return panelStyle.Width(w).Height(h - 2).Render(b.String())
 }
 
 // codeRefLine renders how the focused key is referenced in the codebase.
@@ -357,14 +365,16 @@ func (m Model) missingPane(h, w int) string {
 	return panelStyle.Width(w).Height(h - 2).Render(b.String())
 }
 
-// auditPane cross-references code usage with the diff: keys used in code but
-// missing locally (critical) and keys defined locally but never used.
+// auditPane cross-references code usage with the environment inventory:
+// ghost keys (used in code, missing from all .env files), keys used in code
+// but missing from the primary file, and zombie keys (defined but unused).
 func (m Model) auditPane(h, w int) string {
 	innerH := h - 2
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Code Audit"))
 	if m.audit != nil {
-		b.WriteString(fmt.Sprintf("  (%d files, %d refs)", m.audit.Files, m.audit.Refs))
+		b.WriteString(fmt.Sprintf("  (%d files · ghosts %d · zombies %d)",
+			m.audit.Files, len(m.ghostKeys()), len(m.zombieKeys())))
 	} else if m.auditScan {
 		b.WriteString(dimStyle.Render("  (scanning project source files…)"))
 	} else {
@@ -384,42 +394,37 @@ func (m Model) auditPane(h, w int) string {
 		return panelStyle.Width(w).Height(h - 2).Render(b.String())
 	}
 
-	var critical []*audit.Usage
-	for _, st := range m.rep.Missing {
-		if u := m.audit.Usages[st.Key]; u != nil {
-			critical = append(critical, u)
-		}
-	}
-	sort.Slice(critical, func(i, j int) bool { return critical[i].Count > critical[j].Count })
-
-	var unused []string
-	for _, st := range m.rep.All {
-		if st.Present[m.prim] && m.audit.Usages[st.Key] == nil {
-			unused = append(unused, st.Key)
-		}
-	}
-	sort.Strings(unused)
-
-	if len(critical) > 0 {
-		b.WriteString(missStyle.Render("  Missing from " + m.primaryLabel() + " but used in code:"))
+	ghosts := m.ghostKeys()
+	if len(ghosts) > 0 {
+		b.WriteString(missStyle.Render("  Ghost Keys — used in code, missing from all .env files:"))
 		b.WriteString("\n")
-		for _, u := range critical {
-			b.WriteString(fmt.Sprintf("    %-26s %d ref", u.Key, u.Count))
-			if u.Count != 1 {
-				b.WriteString("s")
-			}
+		for _, u := range ghosts {
+			b.WriteString(fmt.Sprintf("    %-26s %d ref%s", u.Key, u.Count, plural(u.Count)))
 			b.WriteString("\n")
 		}
 	}
-	if len(unused) > 0 {
-		b.WriteString(dimStyle.Render("  Present in env but unused in code:"))
+
+	missUse := m.usedMissingPrimary()
+	if len(missUse) > 0 {
+		b.WriteString(diffStyle.Render("  Used but missing from " + m.primaryLabel() + ":"))
 		b.WriteString("\n")
-		for _, k := range unused {
+		for _, u := range missUse {
+			b.WriteString(fmt.Sprintf("    %-26s %d ref%s", u.Key, u.Count, plural(u.Count)))
+			b.WriteString("\n")
+		}
+	}
+
+	zombies := m.zombieKeys()
+	if len(zombies) > 0 {
+		b.WriteString(dimStyle.Render("  Zombie Keys — in .env files, never referenced in code:"))
+		b.WriteString("\n")
+		for _, k := range zombies {
 			b.WriteString(dimStyle.Render("    " + k))
 			b.WriteString("\n")
 		}
 	}
-	if len(critical) == 0 && len(unused) == 0 {
+
+	if len(ghosts) == 0 && len(missUse) == 0 && len(zombies) == 0 {
 		b.WriteString(matchStyle.Render("  clean: every used var is defined, nothing unused"))
 		b.WriteString("\n")
 	}
@@ -462,7 +467,7 @@ func (m Model) helpView() string {
 		"  x          toggle include source file",
 		"  a          autofill selected missing key into primary .env",
 		"  c          copy selected key's value to clipboard",
-		"  v          toggle Code Audit (used-but-missing / unused)",
+		"  v          toggle Code Audit (ghost / zombie / used-but-missing)",
 		"  r          rescan directory + re-audit source code",
 		"  g / G      jump to top / bottom",
 		"  ?          toggle this help",
@@ -502,17 +507,17 @@ func truncate(s string, max int) string {
 	if lipgloss.Width(s) <= max {
 		return s
 	}
-	out := ""
+	var out strings.Builder
 	width := 0
 	for _, r := range s {
 		rw := lipgloss.Width(string(r))
 		if width+rw > max-1 {
 			break
 		}
-		out += string(r)
+		out.WriteString(string(r))
 		width += rw
 	}
-	return out + "…"
+	return out.String() + "…"
 }
 
 func truncateLines(s string, max int) string {
