@@ -878,3 +878,47 @@ func TestVaultErrorBadge(t *testing.T) {
 		t.Error("header missing vault error badge")
 	}
 }
+
+func TestGenerateTemplate(t *testing.T) {
+	m := testModel(t)
+	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	data, err := os.ReadFile(filepath.Join(m.dir, ".env.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	// empty/secret-ish values become placeholders
+	if !strings.Contains(content, "STRIPE_SECRET_KEY=<YOUR_STRIPE_SECRET_KEY>") {
+		t.Errorf("template missing placeholder:\n%s", content)
+	}
+	// benign values preserved
+	for _, want := range []string{"PORT=3000", "NODE_ENV=development"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("template should keep %q:\n%s", want, content)
+		}
+	}
+	// no raw secret leaked
+	if strings.Contains(content, "sk_live_x") {
+		t.Error("template leaked a secret value")
+	}
+}
+
+func TestTemplateNeedsPlaceholder(t *testing.T) {
+	cases := []struct {
+		key, val string
+		want     bool
+	}{
+		{"PORT", "3000", false},
+		{"NODE_ENV", "production", false},
+		{"API_KEY", "", true}, // empty value
+		{"API_KEY", joinT("sk_", "live_x"), true},
+		{"API_KEY", "abc123", true}, // key name has API
+		{"DB_PASSWORD", "x", true},  // key name has PASSWORD
+		{"DATABASE_URL", "postgres://localhost/db", false},
+	}
+	for _, c := range cases {
+		if got := templateNeedsPlaceholder(c.key, c.val); got != c.want {
+			t.Errorf("templateNeedsPlaceholder(%s,%q) = %v, want %v", c.key, c.val, got, c.want)
+		}
+	}
+}

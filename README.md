@@ -24,6 +24,7 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - 📋 **One-Click Clipboard Exports** — copy `export KEY="VALUE"` lines or full blocks formatted for **Bash / Zsh / Fish** (`T` cycles the target shell), plus copy key names or values individually: `c` value, `C` name, `E` export line, `B` export block
 - 🐚 **Nested Shell** — press `R` to spawn a temporary interactive shell loaded with the `.env` variables, without touching the global/system environment (the vars exist only inside the child process; exit returns to the TUI)
 - 🔐 **Remote Vault Sync** — read-only or pull/push integration with secret managers via their CLIs: **Doppler, HashiCorp Vault, 1Password (`op`), AWS Secrets Manager, Infisical**. The vault appears as a selectable remote source in the diff; `P` pulls missing secrets into your local `.env`, `U` pushes (with confirmation)
+- 📝 **Template Generator** — press `t` to generate a sanitized `.env.example` from your primary `.env`, replacing secret-like values with `<YOUR_API_KEY>`-style placeholders while keeping benign defaults
 - ⚡ **Fast** — pattern-based scanning across JS, TS, Go, Python, Rust, PHP, Ruby, shell and more, runs async
 
 ```
@@ -131,6 +132,7 @@ The vault appears in **Target Files** as `<provider> (vault)` and the header sho
 | `f`                 | toggle the Format & Naming Lint panel           |
 | `r` / `R`           | rescan directory / spawn a nested shell with the loaded env |
 | `P` / `U`           | pull vault secrets into primary `.env` / push primary to vault |
+| `t`                 | generate a sanitized `.env.example` from the primary `.env` |
 | `g` / `G`           | jump to top / bottom                     |
 | `?`                 | toggle help                              |
 | `q`                 | quit                                     |

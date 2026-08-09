@@ -199,6 +199,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.vaultPull()
 	case "U":
 		return m.vaultPushPrompt()
+	case "t":
+		return m.generateTemplate()
 	case "?", "/":
 		m.showHelp = !m.showHelp
 		return m, nil
